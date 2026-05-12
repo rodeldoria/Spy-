@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from app._shared import live_price, setup_page
+from app._ui import inject_global_css, loading, status_pill
 from monte.alerts.engine import tail_alerts
 from monte.broker.paper_book import InsufficientFunds, PaperBook
 from monte.config import settings
@@ -18,6 +19,7 @@ def _book(state_path) -> PaperBook:
 
 def main() -> None:
     setup_page("Budget & Paper Portfolio", icon="💰")
+    inject_global_css()
 
     with st.sidebar:
         st.subheader("Budget")
@@ -37,13 +39,15 @@ def main() -> None:
 
     # mark to market against current live prices
     positions = book.positions()
-    prices = {}
-    for sym in positions:
-        try:
-            p, _ = live_price(sym)
-            prices[sym] = p
-        except Exception:
-            prices[sym] = positions[sym].avg_cost or 1.0
+    prices: dict[str, float] = {}
+    if positions:
+        with loading(f"Marking {len(positions)} position(s) to market…"):
+            for sym in positions:
+                try:
+                    p, _ = live_price(sym)
+                    prices[sym] = p
+                except Exception:
+                    prices[sym] = positions[sym].avg_cost or 1.0
     eq = book.mark_to_market(prices) if positions else None
 
     cols = st.columns(4)
@@ -75,9 +79,13 @@ def main() -> None:
         st.caption("No positions yet.")
 
     st.subheader("Suggested orders from active alerts")
-    rows = tail_alerts(limit=20)
+    with loading("Reading alerts log…"):
+        rows = tail_alerts(limit=20)
     if not rows:
-        st.info("No alerts yet — visit the home page and run a scan.")
+        st.markdown(
+            status_pill("no alerts logged yet — run a scan from the home page", "muted"),
+            unsafe_allow_html=True,
+        )
         return
 
     risk_per = settings.risk_per_trade

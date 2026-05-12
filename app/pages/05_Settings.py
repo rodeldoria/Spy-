@@ -6,11 +6,13 @@ from __future__ import annotations
 import streamlit as st
 
 from app._shared import setup_page
+from app._ui import inject_global_css, status_pill
 from monte.config import settings
 
 
 def main() -> None:
     setup_page("Settings", icon="⚙️")
+    inject_global_css()
 
     st.markdown("Edits here apply for this Streamlit session only. Persist them by editing your `.env`.")
 
@@ -53,10 +55,18 @@ def main() -> None:
         key="slippage_bps",
     )
 
-    with st.expander("Integrations"):
-        st.write("Anthropic (AI sentiment):", "✅" if settings.anthropic_configured else "—")
-        st.write("Perplexity (live tape):", "✅" if settings.perplexity_configured else "—")
-        st.write("Alpaca (SPY paper):", "✅" if settings.alpaca_configured else "—")
+    st.subheader("Integrations")
+    integrations = [
+        ("Anthropic (AI sentiment)", settings.anthropic_configured),
+        ("Perplexity (live tape)", settings.perplexity_configured),
+        ("Alpaca (SPY paper)", settings.alpaca_configured),
+    ]
+    pills = " ".join(
+        status_pill(name + (" · connected" if ok else " · not configured"),
+                    "ok" if ok else "muted")
+        for name, ok in integrations
+    )
+    st.markdown(pills, unsafe_allow_html=True)
 
 
 main()

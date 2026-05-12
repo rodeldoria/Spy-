@@ -1,11 +1,13 @@
-"""Stub crypto data fetcher using yfinance."""
+"""Crypto data fetcher using yfinance."""
 from __future__ import annotations
 
 import pandas as pd
 
+from monte.data._normalize import normalize_ohlcv
+
 
 def get_candles(symbol: str, interval: str, lookback_bars: int = 300) -> pd.DataFrame:
-    """Fetch OHLCV candles via yfinance."""
+    """Fetch OHLCV candles via yfinance, flattened to single-level columns."""
     try:
         import yfinance as yf
         period_map = {
@@ -13,11 +15,18 @@ def get_candles(symbol: str, interval: str, lookback_bars: int = 300) -> pd.Data
             "1h": "730d", "1d": "5y",
         }
         period = period_map.get(interval, "60d")
-        df = yf.download(symbol, period=period, interval=interval, progress=False, auto_adjust=True)
+        df = yf.download(
+            symbol,
+            period=period,
+            interval=interval,
+            progress=False,
+            auto_adjust=True,
+            group_by="column",
+        )
+        df = normalize_ohlcv(df, symbol)
         if df.empty:
             return _empty_df()
-        df = df.tail(lookback_bars)
-        return df
+        return df.tail(lookback_bars)
     except Exception as e:
         raise RuntimeError(f"Could not fetch candles for {symbol}: {e}") from e
 
@@ -29,9 +38,18 @@ def live_price(symbol: str) -> tuple[float, str]:
         ticker = yf.Ticker(symbol)
         info = ticker.fast_info
         price = float(info.last_price or info.regular_market_price or 0.0)
-        return price, "yfinance"
+        if price > 0:
+            return price, "yfinance"
     except Exception:
-        return 0.0, "error"
+        pass
+    try:
+        import yfinance as yf
+        hist = yf.Ticker(symbol).history(period="1d", interval="1m")
+        if not hist.empty:
+            return float(hist["Close"].iloc[-1]), "yfinance-history"
+    except Exception:
+        pass
+    return 0.0, "unavailable"
 
 
 def _empty_df() -> pd.DataFrame:

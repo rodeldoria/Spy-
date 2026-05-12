@@ -8,6 +8,7 @@ import plotly.express as px
 import streamlit as st
 
 from app._shared import candles_long, is_crypto, setup_page
+from app._ui import inject_global_css, loading, status_pill
 from monte.alerts.engine import tail_alerts
 
 
@@ -36,14 +37,22 @@ def _forward_return(symbol: str, timeframe: str, ts: float, horizon_bars: int = 
 
 def main() -> None:
     setup_page("Alert Backtest", icon="🧪")
+    inject_global_css()
     horizon = st.sidebar.slider("Forward horizon (bars)", 5, 60, 20)
-    rows = tail_alerts(limit=500)
+
+    with loading("Loading alerts log…"):
+        rows = tail_alerts(limit=500)
     if not rows:
-        st.info("No alerts logged yet.")
+        st.markdown(
+            status_pill("no alerts logged yet — run a scan from the home page", "muted"),
+            unsafe_allow_html=True,
+        )
         return
 
     out = []
-    for r in rows:
+    progress = st.progress(0.0, text="Computing forward returns…")
+    for i, r in enumerate(rows, 1):
+        progress.progress(i / len(rows), text=f"Computing forward returns ({i}/{len(rows)})")
         fwd = _forward_return(r.get("symbol"), r.get("timeframe"), r.get("ts", 0), horizon)
         if fwd is None:
             continue
@@ -62,8 +71,13 @@ def main() -> None:
                 "hit": pnl > 0,
             }
         )
+    progress.empty()
     if not out:
-        st.info("No alerts have enough forward data yet to evaluate.")
+        st.info(
+            "No alerts have enough forward data yet to evaluate. "
+            "(Data is flowing — but each alert needs `horizon` bars after "
+            "its timestamp before it can be scored.)"
+        )
         return
 
     df = pd.DataFrame(out)
@@ -80,8 +94,18 @@ def main() -> None:
     st.subheader("Hit-rate by confidence bucket")
     st.dataframe(by_bucket, use_container_width=True)
 
-    fig = px.scatter(df, x="confidence", y="pnl", color="action", hover_data=["symbol", "timeframe"])
+    fig = px.scatter(
+        df, x="confidence", y="pnl", color="action",
+        hover_data=["symbol", "timeframe"],
+        title="Confidence vs realised forward P&L",
+    )
     fig.add_hline(y=0, line_dash="dash", line_color="grey")
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        yaxis=dict(tickformat=".1%", gridcolor="rgba(127,127,127,0.15)"),
+        xaxis=dict(gridcolor="rgba(127,127,127,0.15)"),
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 
