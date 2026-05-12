@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spy-bot"
+version = "0.1.0"
+description = "Streamlit UI for the Monte signal engine — crypto + SPY paper-trading dashboard"
+requires-python = ">=3.10"
+authors = [{name = "Spy-"}]
+readme = "README.md"
+dependencies = [
+    "monte @ file:///home/user/Monte",
+    "streamlit>=1.32",
+    "plotly>=5.20",
+    "pandas>=2.1",
+    "numpy>=1.26",
+    "streamlit-autorefresh>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
