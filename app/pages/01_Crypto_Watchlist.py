@@ -12,9 +12,12 @@ from app._shared import (
     setup_page,
     sidebar_watchlists,
 )
+from app.signals import rsi as rsi_signal
+from app.signals import sma_crossover, vwap_reversion
 from monte.indicators.regime import classify_regime
 from monte.indicators.technical import bollinger, macd, rsi
 from monte.signals.dip_pump import detect
+from monte.strategies.signals import action_from_score
 
 
 def _sparkline(closes) -> go.Figure:
@@ -79,6 +82,42 @@ def main() -> None:
                     f"Entry ${alert.entry:,.2f} · Stop ${alert.stop:,.2f} · "
                     f"Target ${alert.target:,.2f} · R:R {alert.rr:.2f}"
                 )
+
+                st.markdown("**Composite signals**")
+                volume = df["Volume"] if "Volume" in df.columns else None
+                runners = [
+                    ("SMA cross", lambda: sma_crossover(close, timeframe=timeframe)),
+                    ("RSI", lambda: rsi_signal(close, timeframe=timeframe)),
+                    (
+                        "VWAP rev",
+                        lambda: (
+                            vwap_reversion(close, volume, timeframe=timeframe)
+                            if volume is not None
+                            else None
+                        ),
+                    ),
+                ]
+                sig_cols = st.columns(3)
+                for sig_col, (label, runner) in zip(sig_cols, runners):
+                    with sig_col:
+                        try:
+                            sig = runner()
+                        except ValueError as e:
+                            st.caption(f"{label}: n/a ({e})")
+                            continue
+                        if sig is None:
+                            st.caption(f"{label}: no volume data")
+                            continue
+                        sig_action = action_from_score(sig.score)
+                        sig_color = action_color(sig_action.value)
+                        st.markdown(
+                            f"**{sig.name}** "
+                            f"<span style='color:{sig_color}'>"
+                            f"{sig_action.value}</span> "
+                            f"<small>score {sig.score:+.2f}</small>",
+                            unsafe_allow_html=True,
+                        )
+                        st.caption(sig.rationale)
 
 
 main()
