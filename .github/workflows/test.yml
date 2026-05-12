@@ -1,0 +1,47 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Spy-
+        uses: actions/checkout@v4
+        with:
+          path: Spy-
+
+      - name: Check out Monte (sibling engine dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: rodeldoria/Monte
+          ref: main
+          path: Monte
+
+      # pyproject.toml pins monte to file:///home/user/Monte for local dev;
+      # symlink the CI checkout into that path so the same pyproject works
+      # without modification.
+      - name: Symlink Monte into the local-dev path
+        run: |
+          sudo mkdir -p /home/user
+          sudo ln -sfn "$GITHUB_WORKSPACE/Monte" /home/user/Monte
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            Spy-/pyproject.toml
+            Monte/pyproject.toml
+
+      - name: Install Spy- with dev deps
+        working-directory: Spy-
+        run: pip install -e '.[dev]'
+
+      - name: Run pytest
+        working-directory: Spy-
+        run: pytest -q
