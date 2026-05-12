@@ -20,12 +20,22 @@ class RegimeResult:
     adx: float
 
 
+def _series(x, fallback) -> pd.Series:
+    if isinstance(x, pd.DataFrame):
+        x = x.iloc[:, 0] if x.shape[1] else fallback
+    if x is None:
+        return fallback
+    return pd.to_numeric(pd.Series(x), errors="coerce")
+
+
 def classify_regime(df: pd.DataFrame, period: int = 14) -> RegimeResult:
-    """Stub regime classifier using a simple ADX approximation."""
+    """Regime classifier using a simple ADX approximation."""
     try:
-        close = df["Close"]
-        high = df.get("High", close)
-        low = df.get("Low", close)
+        if df is None or len(df) == 0:
+            return RegimeResult(regime=RegimeLabel.RANGING, adx=0.0)
+        close = _series(df["Close"], pd.Series(dtype=float))
+        high = _series(df["High"] if "High" in df.columns else close, close)
+        low = _series(df["Low"] if "Low" in df.columns else close, close)
 
         tr = pd.concat(
             [

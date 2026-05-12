@@ -1,13 +1,23 @@
-"""Stub stock price fetcher using yfinance."""
+"""Stock price fetcher using yfinance."""
 from __future__ import annotations
 
 import pandas as pd
+
+from monte.data._normalize import normalize_ohlcv
 
 
 def get_daily(symbol: str, period: str = "2y") -> pd.DataFrame:
     try:
         import yfinance as yf
-        df = yf.download(symbol, period=period, interval="1d", progress=False, auto_adjust=True)
+        df = yf.download(
+            symbol,
+            period=period,
+            interval="1d",
+            progress=False,
+            auto_adjust=True,
+            group_by="column",
+        )
+        df = normalize_ohlcv(df, symbol)
         if df.empty:
             return _empty_df()
         return df
@@ -18,7 +28,15 @@ def get_daily(symbol: str, period: str = "2y") -> pd.DataFrame:
 def get_intraday(symbol: str, period: str = "60d", interval: str = "1h") -> pd.DataFrame:
     try:
         import yfinance as yf
-        df = yf.download(symbol, period=period, interval=interval, progress=False, auto_adjust=True)
+        df = yf.download(
+            symbol,
+            period=period,
+            interval=interval,
+            progress=False,
+            auto_adjust=True,
+            group_by="column",
+        )
+        df = normalize_ohlcv(df, symbol)
         if df.empty:
             return _empty_df()
         return df
@@ -32,9 +50,18 @@ def live_price(symbol: str) -> tuple[float, str]:
         ticker = yf.Ticker(symbol)
         info = ticker.fast_info
         price = float(info.last_price or info.regular_market_price or 0.0)
-        return price, "yfinance"
+        if price > 0:
+            return price, "yfinance"
     except Exception:
-        return 0.0, "error"
+        pass
+    try:
+        import yfinance as yf
+        hist = yf.Ticker(symbol).history(period="5d", interval="1d")
+        if not hist.empty:
+            return float(hist["Close"].iloc[-1]), "yfinance-history"
+    except Exception:
+        pass
+    return 0.0, "unavailable"
 
 
 def _empty_df() -> pd.DataFrame:
