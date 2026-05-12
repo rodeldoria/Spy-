@@ -1,0 +1,42 @@
+[
+  {
+    "name": "rising_no_cross",
+    "closes": [1, 2, 3, 4, 5, 6, 7],
+    "fast": 3,
+    "slow": 5,
+    "expected_score": 0.4,
+    "expected_action": "BUY"
+  },
+  {
+    "name": "falling_no_cross",
+    "closes": [7, 6, 5, 4, 3, 2, 1],
+    "fast": 3,
+    "slow": 5,
+    "expected_score": -0.4,
+    "expected_action": "SELL"
+  },
+  {
+    "name": "cross_up",
+    "closes": [10, 10, 10, 10, 10, 10, 20],
+    "fast": 3,
+    "slow": 5,
+    "expected_score": 1.0,
+    "expected_action": "STRONG_BUY"
+  },
+  {
+    "name": "cross_down",
+    "closes": [10, 10, 10, 10, 11, 11, 0],
+    "fast": 3,
+    "slow": 5,
+    "expected_score": -1.0,
+    "expected_action": "STRONG_SELL"
+  },
+  {
+    "name": "flat",
+    "closes": [10, 10, 10, 10, 10, 10, 10],
+    "fast": 3,
+    "slow": 5,
+    "expected_score": 0.0,
+    "expected_action": "HOLD"
+  }
+]
