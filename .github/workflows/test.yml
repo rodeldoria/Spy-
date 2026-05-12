@@ -20,10 +20,6 @@ jobs:
           repository: rodeldoria/Monte
           ref: main
           path: Monte
-          # rodeldoria/Monte is private; default GITHUB_TOKEN can't read it.
-          # MONTE_PAT must be a repo secret on rodeldoria/Spy- with
-          # contents:read on rodeldoria/Monte.
-          token: ${{ secrets.MONTE_PAT }}
 
       # pyproject.toml pins monte to file:///home/user/Monte for local dev;
       # symlink the CI checkout into that path so the same pyproject works
