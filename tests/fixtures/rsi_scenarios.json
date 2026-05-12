@@ -1,0 +1,50 @@
+[
+  {
+    "name": "all_gains_overbought",
+    "closes": [1, 2, 3, 4, 5, 6, 7, 8],
+    "period": 4,
+    "expected_rsi": 100.0,
+    "expected_score": -1.0,
+    "expected_action": "STRONG_SELL"
+  },
+  {
+    "name": "all_losses_oversold",
+    "closes": [8, 7, 6, 5, 4, 3, 2, 1],
+    "period": 4,
+    "expected_rsi": 0.0,
+    "expected_score": 1.0,
+    "expected_action": "STRONG_BUY"
+  },
+  {
+    "name": "mild_overbought",
+    "closes": [10, 11, 12, 13, 12],
+    "period": 4,
+    "expected_rsi": 75.0,
+    "expected_score": -0.4,
+    "expected_action": "SELL"
+  },
+  {
+    "name": "mild_oversold",
+    "closes": [10, 11, 10, 9, 8],
+    "period": 4,
+    "expected_rsi": 25.0,
+    "expected_score": 0.4,
+    "expected_action": "BUY"
+  },
+  {
+    "name": "neutral_balanced",
+    "closes": [10, 11, 10, 11, 10],
+    "period": 4,
+    "expected_rsi": 50.0,
+    "expected_score": 0.0,
+    "expected_action": "HOLD"
+  },
+  {
+    "name": "flat_no_movement",
+    "closes": [10, 10, 10, 10, 10],
+    "period": 4,
+    "expected_rsi": 50.0,
+    "expected_score": 0.0,
+    "expected_action": "HOLD"
+  }
+]
