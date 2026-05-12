@@ -7,5 +7,6 @@ the pages. This keeps signals testable in isolation.
 
 from app.signals.rsi import rsi
 from app.signals.sma_cross import sma_crossover
+from app.signals.vwap_reversion import vwap_reversion
 
-__all__ = ["rsi", "sma_crossover"]
+__all__ = ["rsi", "sma_crossover", "vwap_reversion"]

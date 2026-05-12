@@ -16,3 +16,8 @@ def sma_cross_scenarios() -> list[dict]:
 @pytest.fixture(scope="session")
 def rsi_scenarios() -> list[dict]:
     return json.loads((FIXTURES / "rsi_scenarios.json").read_text())
+
+
+@pytest.fixture(scope="session")
+def vwap_reversion_scenarios() -> list[dict]:
+    return json.loads((FIXTURES / "vwap_reversion_scenarios.json").read_text())

@@ -1,0 +1,65 @@
+[
+  {
+    "name": "at_vwap",
+    "closes": [10, 10, 10],
+    "volumes": [1, 1, 1],
+    "expected_vwap": 10.0,
+    "expected_deviation": 0.0,
+    "expected_score": 0.0,
+    "expected_action": "HOLD"
+  },
+  {
+    "name": "above_strong_sell",
+    "closes": [10, 10, 11],
+    "volumes": [1, 1, 1],
+    "expected_vwap": 10.333333333333334,
+    "expected_deviation": 0.06451612903225823,
+    "expected_score": -1.0,
+    "expected_action": "STRONG_SELL"
+  },
+  {
+    "name": "above_weak_sell",
+    "closes": [10, 10, 10.1],
+    "volumes": [1, 1, 1],
+    "expected_vwap": 10.033333333333333,
+    "expected_deviation": 0.006644518272425275,
+    "expected_score": -0.4,
+    "expected_action": "SELL"
+  },
+  {
+    "name": "below_strong_buy",
+    "closes": [10, 10, 9],
+    "volumes": [1, 1, 1],
+    "expected_vwap": 9.666666666666666,
+    "expected_deviation": -0.06896551724137934,
+    "expected_score": 1.0,
+    "expected_action": "STRONG_BUY"
+  },
+  {
+    "name": "below_weak_buy",
+    "closes": [10, 10, 9.9],
+    "volumes": [1, 1, 1],
+    "expected_vwap": 9.966666666666669,
+    "expected_deviation": -0.006688963210702283,
+    "expected_score": 0.4,
+    "expected_action": "BUY"
+  },
+  {
+    "name": "volume_weighted_pull_strong_sell",
+    "closes": [10, 10, 15],
+    "volumes": [10, 10, 1],
+    "expected_vwap": 10.238095238095237,
+    "expected_deviation": 0.4651162790697676,
+    "expected_score": -1.0,
+    "expected_action": "STRONG_SELL"
+  },
+  {
+    "name": "high_volume_anchor_holds",
+    "closes": [10, 10, 11],
+    "volumes": [1, 1, 100],
+    "expected_vwap": 10.980392156862745,
+    "expected_deviation": 0.001785714285714155,
+    "expected_score": 0.0,
+    "expected_action": "HOLD"
+  }
+]
