@@ -64,6 +64,8 @@ class Decision:
     direction: str           # "YES", "NO", or "PASS"
     confidence_pct: float    # 0-100, model conviction in chosen direction
     reasoning: str
+    bet_summary: str = ""    # plain-English: "YES = BTC ≥ $80,000 at 12:00 UTC"
+    close_time: float = 0.0  # epoch seconds — for sorting by date
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -199,6 +201,43 @@ def _assess_side(
     )
 
 
+def _bet_summary(market: KalshiMarket, symbol: str) -> str:
+    """Plain-English description of what YES means and when it settles."""
+    import time as _time
+    from datetime import datetime, timezone
+
+    when = ""
+    try:
+        if market.close_time:
+            dt = datetime.fromtimestamp(market.close_time, tz=timezone.utc)
+            now = _time.time()
+            secs = market.close_time - now
+            if secs < 24 * 3600:
+                when = f" at {dt.strftime('%H:%M UTC')}"
+            else:
+                when = f" by {dt.strftime('%a %b %d %H:%M UTC')}"
+    except Exception:
+        pass
+
+    strike_type = (market.strike_type or "").lower()
+    floor = market.floor_strike
+    cap = market.cap_strike
+
+    if strike_type == "greater" and floor is not None:
+        return f"YES = {symbol} closes ≥ ${floor:,.2f}{when}"
+    if strike_type == "less" and floor is not None:
+        return f"YES = {symbol} closes < ${floor:,.2f}{when}"
+    if strike_type == "between" and floor is not None and cap is not None:
+        return f"YES = {symbol} closes between ${floor:,.2f} and ${cap:,.2f}{when}"
+
+    title = (market.title + " " + market.subtitle).lower()
+    if floor is not None and ("up" in title or "above" in title or "higher" in title):
+        return f"YES = {symbol} closes ≥ ${floor:,.2f}{when} (Up market)"
+    if floor is not None and ("down" in title or "below" in title or "lower" in title):
+        return f"YES = {symbol} closes < ${floor:,.2f}{when} (Down market)"
+    return f"YES{when} — see full Kalshi rules (market shape not auto-parsed)"
+
+
 def score_market(
     market: KalshiMarket,
     spot: SpotQuote,
@@ -229,6 +268,8 @@ def score_market(
     if no.edge >= min_edge and no.ev_per_dollar >= min_ev:
         cand.append(("NO", no))
 
+    bet_summary = _bet_summary(market, spot.symbol)
+
     if not cand:
         direction = "PASS"
         # Confidence in PASS = how close the book is to model. Smaller |edge|
@@ -251,6 +292,8 @@ def score_market(
             direction=direction,
             confidence_pct=confidence,
             reasoning=reasoning,
+            bet_summary=bet_summary,
+            close_time=market.close_time,
             warnings=warnings,
         )
 
@@ -291,6 +334,8 @@ def score_market(
         direction=direction,
         confidence_pct=confidence,
         reasoning=reasoning,
+        bet_summary=bet_summary,
+        close_time=market.close_time,
         warnings=warnings,
     )
 

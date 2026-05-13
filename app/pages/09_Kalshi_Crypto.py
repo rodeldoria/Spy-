@@ -65,11 +65,65 @@ def _direction_pill(direction: str, confidence: float) -> str:
         "PASS": ("#5b6470", "#f1f3f5", "⚪"),
     }
     fg, bg, emoji = palette.get(direction, palette["PASS"])
+    if direction == "PASS":
+        # PASS confidence = how close book is to model. Don't show as a %
+        # (people read it as "44% chance of YES"). Show as a qualitative label.
+        if confidence >= 75:
+            label = "book ≈ model"
+        elif confidence >= 40:
+            label = "no clear edge"
+        else:
+            label = "near threshold"
+        suffix = f" · {label}"
+    else:
+        suffix = f" · {confidence:.0f}% conviction"
     return (
         f"<span class='spy-pill' style='color:{fg};background:{bg};"
-        f"font-size:0.95rem;padding:4px 12px;font-weight:700;'>"
-        f"{emoji} {direction} · {confidence:.0f}%</span>"
+        f"font-size:0.95rem;padding:4px 12px;font-weight:700;' "
+        f"title='Conviction is a logistic of edge size: 4pp=50%, 8pp=~85%, 12pp=90%, 20pp≈99%.'>"
+        f"{emoji} {direction}{suffix}</span>"
     )
+
+
+def _kalshi_help() -> None:
+    with st.expander("ℹ️ How to read these signals (EV · Kelly · Conviction)"):
+        st.markdown(
+            """
+**What each market is asking** — Each row shows a binary contract: YES pays $1 if the
+condition resolves true, NO pays $1 if it resolves false. The **Bet:** line under
+each title spells out exactly what YES means in plain English (e.g. "BTC ≥ $80,000
+at 12:00 UTC").
+
+**The model** — A driftless GBM (geometric Brownian motion) fed with realised 1-minute
+volatility. It computes the *fair* probability of YES given just spot price and vol.
+This is a **benchmark, not a prediction** — its job is to flag when Kalshi's book
+disagrees with vol-implied fair value.
+
+**Edge** — `model_prob − implied_prob` in percentage points. 4pp is our default
+floor; below that, model error swamps the signal.
+
+**EV (¢ per $1)** — Expected return per $1 staked. `EV = model_prob × payout − 1`.
+- **EV +5¢/$1 or higher** = strong; covers fees, slippage, and some model error
+- **EV +2 to +5¢** = marginal; only take if Kelly is also small (1-3%)
+- **EV ≤ +2¢** = skip — usually noise
+
+**Kelly fraction** — Optimal % of bankroll to risk on this bet, capped at 25%
+(full Kelly is too aggressive; the model has its own error bars).
+- **Kelly < 1%** = skip even if EV is positive (model can't tell sides apart)
+- **Kelly 2-8%** = normal scale-in size
+- **Kelly 10-25%** = high conviction; still cap at 5-10% of bankroll in practice
+
+**Conviction % scale (for YES/NO only)** — Logistic of edge size:
+- **< 50%** = weak (edge ~4pp); maybe size at 0.25× Kelly
+- **50–75%** = moderate (edge 4–8pp)
+- **75–90%** = strong (edge 8–12pp)
+- **> 90%** = high (edge ≥ 12pp); rare, often signals stale book
+
+**PASS rows** — The book matches the model within tolerance, so there's no edge
+worth taking. The qualifier ("book ≈ model" / "near threshold") tells you how close
+to the edge floor — *not* a probability.
+            """
+        )
 
 
 def _countdown(seconds: float) -> str:
@@ -92,7 +146,9 @@ def _render_decision_row(d: Decision) -> None:
             f"**{d.title}**  \n"
             f"<span class='spy-meta'>Closes in {_countdown(d.horizon_seconds)} · "
             f"Spot ${d.spot_price:,.2f} ({d.spot_source}) · "
-            f"σ {d.sigma_per_min*100:.3f}%/min</span>",
+            f"σ {d.sigma_per_min*100:.3f}%/min</span>  \n"
+            + (f"<span style='color:#2563eb;font-weight:600;font-size:0.85rem;'>"
+               f"📌 Bet: {d.bet_summary}</span>" if d.bet_summary else ""),
             unsafe_allow_html=True,
         )
         cols[1].markdown(
@@ -144,7 +200,37 @@ def _resolve_spot(symbol: str) -> tuple[SpotQuote | None, str | None]:
         return None, str(e)
 
 
-def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_ev: float) -> None:
+def _sort_decisions(decisions: list[Decision], sort_mode: str) -> list[Decision]:
+    if sort_mode == "Closing soonest":
+        return sorted(decisions, key=lambda d: d.horizon_seconds)
+    if sort_mode == "Closing latest":
+        return sorted(decisions, key=lambda d: -d.horizon_seconds)
+    if sort_mode == "Strike low → high":
+        # Use the YES side's implied prob as a proxy when no strike is parseable.
+        return sorted(
+            decisions,
+            key=lambda d: (
+                # Pull strike from bet_summary if it contains a $ amount.
+                _strike_from_summary(d.bet_summary),
+                d.horizon_seconds,
+            ),
+        )
+    # Default: best edge first
+    return sorted(decisions, key=lambda d: -max(d.yes_side.edge, d.no_side.edge))
+
+
+def _strike_from_summary(summary: str) -> float:
+    import re
+    m = re.search(r"\$([\d,]+(?:\.\d+)?)", summary or "")
+    if not m:
+        return float("inf")
+    try:
+        return float(m.group(1).replace(",", ""))
+    except ValueError:
+        return float("inf")
+
+
+def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_ev: float, sort_mode: str) -> None:
     st.subheader(f"{symbol}")
     spot, err = _resolve_spot(symbol)
     spot_col, override_col = st.columns([2.4, 1.6])
@@ -210,9 +296,14 @@ def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_
         st.markdown(f"#### {HORIZON_LABELS[horizon]}")
         decisions = score_event(markets, spot, min_edge=min_edge, min_ev=min_ev)
 
-        # Show actionable first, then top 5 passes for context.
-        actionable = [d for d in decisions if d.direction != "PASS"]
-        passes = [d for d in decisions if d.direction == "PASS"]
+        # Show actionable first, then top 8 passes for context. Sort within
+        # each group by the user's chosen mode.
+        actionable = _sort_decisions(
+            [d for d in decisions if d.direction != "PASS"], sort_mode
+        )
+        passes = _sort_decisions(
+            [d for d in decisions if d.direction == "PASS"], sort_mode
+        )
         for d in actionable:
             _render_decision_row(d)
         if passes:
@@ -259,6 +350,17 @@ def main() -> None:
             help="Minimum expected return in cents per $1 staked. Acts as a "
             "fee + slippage cushion.",
         )
+        sort_mode = st.selectbox(
+            "Sort markets by",
+            [
+                "Best edge",
+                "Closing soonest",
+                "Closing latest",
+                "Strike low → high",
+            ],
+            index=0,
+            help="How to order markets within each horizon group.",
+        )
         refresh_secs = st.select_slider(
             "Auto-refresh",
             options=[5, 10, 30, 60, 120, 300],
@@ -283,12 +385,15 @@ def main() -> None:
         st.warning("Pick at least one symbol and one horizon in the sidebar.")
         return
 
+    _kalshi_help()
+
     for symbol in symbols:
         _render_symbol(
             symbol,
             tuple(horizons),
             min_edge=min_edge_pp / 100.0,
             min_ev=min_ev_cents / 100.0,
+            sort_mode=sort_mode,
         )
 
 
