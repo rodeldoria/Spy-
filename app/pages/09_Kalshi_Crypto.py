@@ -59,6 +59,17 @@ def _fetch_spot(symbol: str) -> SpotQuote:
     return get_spot_price(symbol)
 
 
+@st.cache_data(ttl=1, show_spinner=False)
+def _fetch_markets_live(symbol: str, horizons: tuple[str, ...]) -> dict[str, list[KalshiMarket]]:
+    """Sub-second TTL variant for when the user picks 1-3s autorefresh.
+
+    Kalshi REST blocks direct browser CORS, so the Streamlit server has to
+    proxy every poll. 1s TTL keeps repeated reruns from hammering the API
+    while still feeling live.
+    """
+    return _client().crypto_markets(symbol, horizons=horizons)
+
+
 @st.cache_data(ttl=15, show_spinner=False)
 def _cached_calibration():
     """Reload calibration report at most every 15s."""
@@ -660,11 +671,16 @@ def main() -> None:
             help="How to order markets within each horizon group.",
         )
         refresh_secs = st.select_slider(
-            "Auto-refresh (book + spot)",
-            options=[3, 5, 10, 30, 60, 120, 300],
-            value=5,
-            help="How often to re-pull the Kalshi book and crypto spot. "
-            "Countdown seconds tick every 250ms client-side regardless.",
+            "Kalshi book refresh (sec)",
+            options=[1, 2, 3, 5, 10, 30, 60, 120, 300],
+            value=3,
+            help="Kalshi REST is server-proxied (browser CORS is blocked), "
+            "so this controls how often YES/NO ¢ refreshes. "
+            "Countdown seconds tick every 250ms and Coinbase spot streams "
+            "via WebSocket regardless of this slider.",
+        )
+        st.caption(
+            f"📡 Live: Coinbase WS spot (sub-sec) · Kalshi book every {refresh_secs}s"
         )
         st_autorefresh(interval=refresh_secs * 1000, key="kalshi_refresh")
 
