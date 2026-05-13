@@ -302,7 +302,6 @@ def _countdown(seconds: float) -> str:
     return f"{s // 86400}d {(s % 86400) // 3600:02d}h"
 
 
-<<<<<<< HEAD
 def _council_inputs_for(d: Decision, calib_report) -> dict:
     """Pack a Decision into the kwargs that decision_council.evaluate expects."""
     chosen = d.chosen
@@ -534,8 +533,6 @@ def _render_council_panel(
             _render_council_card(d, v)
 
 
-def _render_decision_row(d: Decision, calib_report=None, stake: float = 10.0) -> None:
-=======
 def _council_pill(council: CouncilResult) -> str:
     """5-gate council badge — green when armed (≥4/5), grey when not."""
     if council.armed:

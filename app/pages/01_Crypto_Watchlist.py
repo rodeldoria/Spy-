@@ -87,46 +87,6 @@ _REGIME_SHORT = {
 }
 
 
-<<<<<<< HEAD
-    # ---- Pattern engine (pro-investor frameworks) ------------------------
-    try:
-        bundle = detect_patterns(close, spot)
-    except Exception:
-        bundle = None
-
-    # ---- Forecast accuracy learning loop ---------------------------------
-    # First: settle anything pending whose horizon time has passed, using
-    # the close series we already have in memory. Then snapshot today's
-    # projections so they can be settled later.
-    try:
-        forecast_calibration.settle_pending(sym, close)
-        forecast_calibration.snapshot_projections(sym, projections)
-        fc_report = forecast_calibration.report(sym)
-    except Exception:
-        fc_report = None
-
-    cells = []
-    for p in projections:
-        if p.drift_pct > 0.05:
-            color = "#0a7d2a"
-            arrow = "▲"
-        elif p.drift_pct < -0.05:
-            color = "#a8261f"
-            arrow = "▼"
-        else:
-            color = "#6b7280"
-            arrow = "→"
-
-        cells.append(
-            f"<div class='spy-fc-cell'>"
-            f"<div class='spy-fc-label'>{p.label}</div>"
-            f"<div class='spy-fc-time'>by {p.label_pst()} · {p.label_utc()}</div>"
-            f"<div class='spy-fc-price' style='color:{color};'>{arrow} ${p.median:,.2f}</div>"
-            f"<div class='spy-fc-delta' style='color:{color};'>{p.drift_pct:+.2f}%</div>"
-            f"<div class='spy-fc-range'>±${(p.upper - p.median):,.2f} ({p.range_pct:.2f}%)</div>"
-            f"<div class='spy-fc-band'>${p.lower:,.2f} → ${p.upper:,.2f}</div>"
-            f"</div>"
-=======
 def _regime_display(regime_value: str) -> tuple[str, str]:
     return _REGIME_SHORT.get(str(regime_value).upper(), (str(regime_value).title(), ""))
 
@@ -194,7 +154,6 @@ def _plain_english_guide(
         headline = (
             "No clean setup right now. Sitting out is the trade. "
             "Waiting beats forcing it."
->>>>>>> 3719c3e7da6d00340abfcfbcc8736cfed54971c3
         )
 
     bullets: list[str] = []
@@ -236,22 +195,6 @@ def _plain_english_guide(
 
     li = "".join(f"<li>{b}</li>" for b in bullets)
     st.markdown(
-<<<<<<< HEAD
-        "<div class='spy-meta' style='margin:8px 0 4px 0;'>"
-        f"📈 <strong>Forecast grid</strong> — projected price &amp; 1σ band at each horizon "
-        "<span style='color:#888;'>(based on recent volatility — for Kalshi/options sizing, not a guarantee)</span>"
-        "<br/><span style='color:#888;font-size:0.78rem;'>"
-        "Legend: <strong>▲</strong> projected up · <strong>▼</strong> projected down · "
-        "<strong>→</strong> projected flat. The bottom row "
-        "<code>$lo → $hi</code> is the 1σ band — about 68% of the time the "
-        "actual price should land inside this range."
-        "</span>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        f"<div class='spy-fc-grid'>{''.join(cells)}</div>",
-=======
         f"<div class='spy-plain'>"
         f"<h4>🧭 Should I buy? — {verdict}</h4>"
         f"<div style='font-size:0.9rem;'>{headline}</div>"
@@ -260,7 +203,6 @@ def _plain_english_guide(
         f"This is educational, not advice. Sizing &amp; stops are on you."
         f"</div>"
         f"</div>",
->>>>>>> 3719c3e7da6d00340abfcfbcc8736cfed54971c3
         unsafe_allow_html=True,
     )
 
@@ -634,74 +576,6 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
         adx=regime.adx,
     )
 
-<<<<<<< HEAD
-    # Each tile has a short caption shown beneath the value, plus a rich
-    # multi-line "ⓘ" hover tooltip explaining (1) what the metric is,
-    # (2) what the numbers mean, and (3) why we track it.
-    spot_tip = (
-        "WHAT: Live price of one unit (1 BTC, 1 ETH, etc.) in USD.\n"
-        f"NUMBERS: Quoted in dollars. Source `{src}` is the exchange/feed we pulled it from.\n"
-        "WHY: Every other signal on this page is judged relative to spot — "
-        "entries, stops, targets, Kalshi strikes and the forecast bands all "
-        "anchor here. Stale spot = wrong everything else."
-    )
-    rsi_tip = (
-        "WHAT: Relative Strength Index, 14-period — momentum oscillator (Wilder, 1978).\n"
-        "NUMBERS: 0-100 scale. <30 = oversold (often bounces). "
-        ">70 = overbought (often pulls back). 50 = neutral.\n"
-        "WHY: A leading exhaustion signal. When RSI prints an extreme while "
-        "price keeps going (divergence), trend reversals tend to follow."
-    )
-    bb_tip = (
-        "WHAT: Bollinger Band %b — where price sits inside the 20-period ±2σ band.\n"
-        "NUMBERS: 0.00 = touching the lower band (squeeze/oversold). "
-        "1.00 = touching the upper band (extension/overbought). "
-        "0.50 = middle (20-period mean).\n"
-        "WHY: A normalised mean-reversion gauge that adapts to volatility. "
-        "Tells us if a move is statistically extreme for *this* market right now, "
-        "not in absolute dollars."
-    )
-    macd_tip = (
-        "WHAT: MACD histogram — the gap between the MACD line (12-EMA - 26-EMA) "
-        "and its 9-period signal line.\n"
-        "NUMBERS: Positive (+) = short-term momentum is faster than the trend, "
-        "i.e. accelerating up. Negative (−) = decelerating / accelerating down. "
-        "Magnitude scales with the asset's price.\n"
-        "WHY: One of the cleanest momentum-shift detectors. Histogram crossing "
-        "zero often marks the inflection point before a meaningful move."
-    )
-    regime_tip = (
-        "WHAT: Composite trend regime label, plus ADX(14) — the strength of "
-        "whatever trend is in place.\n"
-        "NUMBERS: ADX <15 = chop/range (no trend, mean-reversion edge). "
-        "15-25 = mild trend. >25 = strong trend (trend-following edge). "
-        ">40 = very strong (often near exhaustion).\n"
-        "WHY: A buy signal in a chop regime fails very differently than a buy "
-        "signal in a strong uptrend. We track regime so the same RSI=30 reading "
-        "gets weighted differently depending on what kind of market we're in."
-    )
-
-    metrics_cells = [
-        ("Spot",     f"${spot:,.2f}",                        f"source: {src}",                  None,    spot_tip),
-        ("RSI(14)",  f"{last_rsi:.0f}",                       "<30 oversold · >70 overbought",   None,    rsi_tip),
-        ("BB %b",    f"{float(bb_row['bb_pctb']):.2f}",       "0 = lower · 1 = upper",           None,    bb_tip),
-        ("MACD",     f"{macd_hist:+.3f}",                     "positive = bullish momentum",     None,    macd_tip),
-        ("Regime",   regime_short,                            "trend strength below",            adx_sub, regime_tip),
-    ]
-    metrics_html = "".join(
-        f"<div class='spy-metric-cell' title='{_html.escape(rich_tip)}'>"
-        f"<div class='spy-metric-label'>{_html.escape(label)} "
-        f"<span style='color:#6b7280;font-size:0.72rem;cursor:help;' "
-        f"title='{_html.escape(rich_tip)}'>ⓘ</span></div>"
-        f"<div class='spy-metric-value'>{_html.escape(value)}</div>"
-        f"<div class='spy-metric-sub'>{sub_html if sub_html else _html.escape(tooltip)}</div>"
-        f"</div>"
-        for label, value, tooltip, sub_html, rich_tip in metrics_cells
-    )
-    st.markdown(
-        f"<div class='spy-metric-strip'>{metrics_html}</div>",
-        unsafe_allow_html=True,
-=======
     _plain_english_guide(
         action=alert.action.value,
         confidence=float(alert.confidence or 0),
@@ -710,7 +584,6 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
         macd_hist=macd_hist,
         regime_value=regime.regime.value,
         alert=alert,
->>>>>>> 3719c3e7da6d00340abfcfbcc8736cfed54971c3
     )
 
     chart_df = df.tail(400)
