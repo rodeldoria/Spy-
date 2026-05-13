@@ -11,17 +11,23 @@ range markets) alongside the dashboard's spot price feed and computes:
 No automated execution. Outputs are advisory; the user places the bet.
 """
 
+from app.kalshi.ai_opinion import Opinion, get_opinion
 from app.kalshi.client import KalshiClient, KalshiMarket, KalshiOrderbook
+from app.kalshi.council import CouncilResult, evaluate as evaluate_council
 from app.kalshi.decisions import Decision, score_market, score_event
 from app.kalshi.spot import SpotQuote, get_spot_price
 
 __all__ = [
+    "CouncilResult",
+    "Decision",
     "KalshiClient",
     "KalshiMarket",
     "KalshiOrderbook",
-    "Decision",
+    "Opinion",
     "SpotQuote",
+    "evaluate_council",
+    "get_opinion",
     "get_spot_price",
-    "score_market",
     "score_event",
+    "score_market",
 ]
