@@ -223,7 +223,7 @@ def inject_global_css() -> None:
         }
         .spy-factor-grid {
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
             gap: 6px;
         }
         .spy-factor-pill {
