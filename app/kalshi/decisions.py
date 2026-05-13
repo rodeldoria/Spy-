@@ -353,3 +353,107 @@ def score_event(
     ]
     decisions.sort(key=lambda d: -max(d.yes_side.edge, d.no_side.edge))
     return decisions
+
+
+# ---------------------------------------------------------------------------
+# Earning-potential helpers — bridge "edge per $1" → "expected $ on my bet"
+# ---------------------------------------------------------------------------
+
+def kalshi_fee_per_contract(ask_cents: int) -> float:
+    """Kalshi trading fee per contract, in dollars. Uses the published
+    formula: round_up(0.07 × price × (1 - price) × 100) / 100, applied to
+    the winning leg only.
+
+    For ask = 10¢ → ~1¢, ask = 50¢ → ~2¢, ask = 1¢ → ~1¢ floor.
+    """
+    p = max(0.0, min(1.0, ask_cents / 100.0))
+    raw_dollars = 0.07 * p * (1.0 - p)
+    if raw_dollars <= 0:
+        return 0.0
+    # Round up to the nearest cent
+    return math.ceil(raw_dollars * 100.0) / 100.0
+
+
+def breakeven_prob(ask_cents: int) -> float:
+    """The probability of YES (or NO) you'd need just to break even at
+    the given ask. Equal to the ask price expressed as a probability."""
+    return max(0.0, min(1.0, ask_cents / 100.0))
+
+
+def net_ev_per_dollar(model_prob: float, ask_cents: int) -> tuple[float, float]:
+    """Expected net P&L per $1 staked, after Kalshi fees. Returns
+    (net_ev_per_dollar, fee_drag_per_dollar_on_win)."""
+    p = max(1, ask_cents) / 100.0
+    fee = kalshi_fee_per_contract(ask_cents)
+    # If you stake $1 you own 1/p contracts. On a win each contract pays
+    # $1 gross, so gross win profit = (1-p)/p per $1. Fees are charged
+    # only on settlement of winning contracts.
+    fee_per_dollar_on_win = fee / p
+    net_win_per_dollar = (1.0 - p) / p - fee_per_dollar_on_win
+    net_ev = model_prob * net_win_per_dollar - (1.0 - model_prob)
+    return net_ev, fee_per_dollar_on_win
+
+
+def expected_dollars_at_stake(
+    model_prob: float, ask_cents: int, stake_dollars: float
+) -> dict:
+    """Translate edge per $1 into the dollar numbers a human cares about.
+
+    Returns:
+      gross_win_$ — gross profit if the bet hits (no fees)
+      fees_$ — Kalshi fee paid on a winning settlement
+      net_win_$ — net profit if the bet hits (after fees)
+      max_loss_$ — what you lose if the bet misses (= stake)
+      net_expected_$ — probability-weighted net dollars
+      contracts — number of contracts purchased
+    """
+    p = max(1, ask_cents) / 100.0
+    contracts = stake_dollars / p if p > 0 else 0.0
+    fee_per = kalshi_fee_per_contract(ask_cents)
+    gross_win = contracts * (1.0 - p)
+    fees = contracts * fee_per
+    net_win = gross_win - fees
+    max_loss = stake_dollars
+    net_expected = model_prob * net_win - (1.0 - model_prob) * max_loss
+    return {
+        "contracts": contracts,
+        "gross_win": gross_win,
+        "fees": fees,
+        "net_win": net_win,
+        "max_loss": max_loss,
+        "net_expected": net_expected,
+    }
+
+
+def annualized_roi(net_ev_per_dollar: float, horizon_seconds: float) -> float:
+    """Convert "X cents per $1 over T seconds" into an annualized return
+    (decimal, e.g. 0.42 = 42%/yr). Capped at ±100×/yr because tiny-horizon
+    edges otherwise produce nonsense like 50,000%/yr.
+
+    Uses simple, not compound, scaling — the user is comparing a one-shot
+    bet to other one-shot bets, not reinvesting at every bar.
+    """
+    if horizon_seconds <= 0:
+        return 0.0
+    seconds_per_year = 365.25 * 24 * 3600
+    scale = seconds_per_year / horizon_seconds
+    return max(-100.0, min(100.0, net_ev_per_dollar * scale))
+
+
+def model_quality_factor(warnings: list[str]) -> tuple[float, str]:
+    """Discount factor (0..1) on EV when the model is operating on a
+    fallback prior, with a human-readable label. Returns (factor, label).
+
+    1.0 = full confidence; 0.5 = half discount; 0.1 = "this number is
+    largely cosmetic, treat with skepticism".
+    """
+    text = " ".join(warnings).lower()
+    if "unrecognised" in text or "unrecognized" in text:
+        return 0.10, "model fallback (50% prior) — ignore EV magnitude"
+    if "zero volume" in text or "stale" in text:
+        return 0.50, "stale book — EV may not be fillable at displayed price"
+    if "less than a minute" in text:
+        return 0.40, "≤ 1 min to close — vol model unreliable"
+    if "wide spread" in text:
+        return 0.70, "wide spread — implied prob is noisy"
+    return 1.0, "model OK"

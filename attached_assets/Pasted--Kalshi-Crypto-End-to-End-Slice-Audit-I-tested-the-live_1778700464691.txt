@@ -1,0 +1,46 @@
+# Kalshi Crypto — End-to-End Slice Audit
+
+I tested the live page across BTC, ETH, and SOL, and across all four horizons (15-min Up/Down, Hourly, Daily, Weekly). Below is a slice-by-slice verdict on whether the displayed numbers represent **true earning potential** or are **missing a datapoint**.
+
+## What a "slice" shows today
+
+Every market card consistently displays: contract side (YES/NO), ask price (¢), implied payout multiple (x), book-implied probability, model probability, edge in pp, $10 sample bet → gross win/loss, EV in ¢/$1, Kelly %, conviction %, time-to-close, spot, σ/min, and an 8-framework scorecard (Edge, Kelly, EV, Conviction, Liquidity, Calibration, Triangulation, Pre-mortem) plus a 3-step playbook.
+
+That's a strong baseline. But several pieces of information that drive *actual* dollar earning potential are missing or implicit.
+
+## Slice-by-slice verdict
+
+**BTC · 15-min Up/Down — "YES @ 1¢ (100x), EV +4900¢/$1".** Mathematically the EV is correct given a 50% model vs 1% book, but the slice is **missing real earning potential context**: (a) the ask is 1¢, which is *outside* the 5–95¢ tradeable band the app itself flags, so the 100x payout is largely theoretical — there is no "max fillable size" shown; (b) "Zero volume so far — book may be stale" is flagged but there is no displayed orderbook depth (how many contracts at 1¢?), so the user can't tell if they can earn $990 or $9.90; (c) no Kalshi fee (~7% of profit on resolution) is netted out; (d) no breakeven price or breakeven probability shown. Verdict: **missing datapoints — overstates true earning potential.**
+
+**BTC · Daily settlement (the 5 scored opportunities).** These are the most useful slices. Each card properly shows model vs book, edge, EV, Kelly, conviction, and a half-Kelly dollar suggestion ($125, $29, $27, $125, $46). But again **missing**: (1) **expected dollar P&L at the recommended stake** (it shows $10-bet illustration and a half-Kelly $ figure, but never multiplies them — e.g. "Half-Kelly $29 at EV +90.2¢/$1 → expected +$26.16 per fill"); (2) **fees**; (3) **fill-size / book depth** at the ask; (4) **time-decay / opportunity cost** — a 232-day hold for +5¢/$1 EV is a very different annualized ROI than a 33-minute hold for the same EV, and the slices don't compute that. Verdict: **directionally correct, but missing the dollar-earning translation and time-normalized ROI.**
+
+**BTC · Hourly / Weekly slices (collapsed PASS).** They correctly hide markets where book ≈ model. Good filtering. Verdict: **shows true value (a true negative).**
+
+**ETH · 15-min Up/Down — "YES @ 1¢, EV +4900¢/$1".** Same pathology as BTC 15-min: edge from an "unrecognised market shape; suppressing model recommendation" flag — the system is literally telling you the 50% model prior is a fallback, not a real estimate, yet still prints a +4900¢ EV. The scorecard correctly penalizes it (Liquidity ◻, Pre-mortem ◻), but the headline EV number is not adjusted for the model-quality discount. Verdict: **missing datapoint — model-confidence-adjusted EV.**
+
+**ETH · Daily slices ($2,000–$2,249 YES @ 10¢ etc.).** These are the *cleanest* slices in the app: model = 22.1%, book = 8.5%, edge +13.6pp, EV +121.3¢/$1, Kelly 13.5%, conviction 80%, liquidity passes, no risk flags. This is where the app shines. Still missing: fees, fillable depth, expected $ at the suggested $67 half-Kelly, breakeven probability. Verdict: **largely shows true value, minor missing datapoints.**
+
+**ETH · "closes ≥ $4,999.99" NO @ 95¢, EV +5.3¢/$1, Kelly 25%.** Here Kelly suggests 25% of bankroll for only ~5% EV — a classic small-edge / near-certain outcome. The slice does not show **maximum loss exposure in $** ($125 staked to win $6.58), nor **variance / drawdown risk** for the 25% Kelly recommendation. For a near-cert NO, the asymmetry of "risk $125 to win ~$6" should be made explicit. Verdict: **missing datapoint — risk/reward asymmetry not surfaced.**
+
+**SOL slices.** SOL is duplicated twice in the header (Spot $90.59 and Spot $90.56 appear back-to-back — looks like a render bug), and only the Hourly section appears with a PASS-only collapse. No actionable opportunities surfaced during the test, which is fine, but the **duplicate Spot block is a real UI bug.** Verdict: **functional but rendering bug.**
+
+**Sidebar controls (Symbols, Horizons, Min edge, Min EV, Stake size, Bankroll, Sort, Refresh).** Stake size and Total bankroll inputs exist, but their *effect on each slice's earning display is not visible* — slices show fixed $10 illustration and half-Kelly $ that appears tied to bankroll, but they don't recompute a "Your bet → expected $ profit" using the stake input. Verdict: **missing datapoint — stake field is decorative on the card level.**
+
+## The single biggest missing datapoint (applies to every slice)
+
+**Expected dollar P&L net of fees at the recommended stake**, plus **fillable size at the displayed ask**. Right now every card answers "what's the edge per $1?" but not "what can I actually earn on this trade?" To turn EV into earning potential you need:
+
+1. Orderbook depth at the ask (max contracts available at 1¢, 5¢, etc.) — without this, the 100x payouts are illusions.
+2. Kalshi fees applied to the win leg (≈ 7% of profit, market-dependent) — currently gross, not net.
+3. Expected $ profit at the displayed half-Kelly recommendation (`stake × EV/$1`), not just at the generic $10.
+4. Time-normalized ROI (EV per day, or annualized) so a 5¢/$1 / 232-day trade isn't compared apples-to-apples with a 90¢/$1 / 33-min trade.
+5. Breakeven probability (`= ask¢/100`) shown next to the model probability so the user sees the buffer.
+6. Model-quality discount on EV when the engine itself flags "unrecognised market shape; suppressing model recommendation" — currently the EV still prints at full size.
+
+## Other issues found
+
+There is **HTML leakage** in the rendered text for many cards (`</span>` tags and raw `<span style='…'>` strings appear in the bet description) and the LaTeX `\(P(\cdot)\)` is not rendering — it shows as `1.P(70,000.00 ≤ price ≤ …)`. These are visible markdown/HTML pipeline bugs in the daily/weekly cards. The Calibration tile correctly notes "no settled markets yet (168 snapshots)" — that's an honest disclosure, good.
+
+## Bottom line
+
+The app shows an **excellent edge-detection layer** (model vs book, EV/$1, Kelly%, conviction, 8-framework scorecard, playbook) but it does **not** show true earning potential per slice. It is missing the bridge from "edge per $1" to "expected dollars at my actual stake, net of fees, given fillable depth, annualized over time-to-close." Add those six datapoints (especially fillable depth and net-of-fees expected $) and each slice would represent real earning potential instead of theoretical edge.
