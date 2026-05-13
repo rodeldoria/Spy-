@@ -475,6 +475,119 @@ def act_now_banner(row: dict) -> None:
     signal_banner(row)
 
 
+def signal_guide() -> None:
+    """Render a collapsible signal-tier reference card for new users."""
+    tiers = [
+        {
+            "label": "ACT NOW",
+            "color": "#0a7d2a",
+            "bg": "rgba(10,125,42,0.10)",
+            "border": "#0a7d2a",
+            "icon": "🟢",
+            "headline": "Enter now — high-conviction setup",
+            "body": (
+                "4 or more indicators agree, confidence ≥ 75%, and macro is on-side. "
+                "This is the window you've been waiting for. The signal shows an exact "
+                "<strong>entry price</strong>, a <strong>stop-loss</strong> (where you exit if wrong), "
+                "and a <strong>target</strong> (where you take profit). "
+                "Size your position using the Budget page — never risk more than the suggested amount. "
+                "<em>Move quickly — ACT NOW windows are typically short.</em>"
+            ),
+            "do": "Open a paper trade. Note entry, stop, target.",
+            "dont": "Risk more than the suggested size. Chase if price has already moved far.",
+        },
+        {
+            "label": "WATCH",
+            "color": "#b45309",
+            "bg": "rgba(180,83,9,0.10)",
+            "border": "#b45309",
+            "icon": "🟡",
+            "headline": "Setup forming — prepare but wait",
+            "body": (
+                "3+ indicators are aligned and confidence ≥ 60%, but the signal isn't fully "
+                "confirmed yet. Think of this as the <strong>pre-game</strong>: conditions are "
+                "good but you haven't seen the starting gun. Review the stop/target levels, "
+                "decide your position size, and have capital ready. <em>Do not enter yet.</em>"
+            ),
+            "do": "Note the symbol, set a price alert, calculate your risk.",
+            "dont": "Enter early — the setup may reverse before confirmation.",
+        },
+        {
+            "label": "HOLD",
+            "color": "#4b5563",
+            "bg": "rgba(75,85,99,0.10)",
+            "border": "#6b7280",
+            "icon": "⬜",
+            "headline": "No edge detected — stay flat",
+            "body": (
+                "Indicators are mixed or near-neutral. There is no clear directional signal. "
+                "If you are <strong>not in this trade</strong>: stay out. "
+                "If you are <strong>already in this trade</strong>: HOLD does <em>not</em> mean sell — "
+                "it means no new information has arrived. Manage your existing stop and target."
+            ),
+            "do": "Hold existing positions. Manage stops.",
+            "dont": "Open new positions. HOLD is not a buy or sell instruction.",
+        },
+        {
+            "label": "STAND DOWN",
+            "color": "#991b1b",
+            "bg": "rgba(153,27,27,0.10)",
+            "border": "#dc2626",
+            "icon": "⚪",
+            "headline": "Conditions are against you — wait",
+            "body": (
+                "Fewer than 3 indicators agree, macro is misaligned (SPY below its 200-day, "
+                "broad selling pressure), or confidence is too low. "
+                "The market environment works against a clean trade right now. "
+                "<strong>Do not open new positions.</strong> This is the system protecting you "
+                "from low-probability setups. Patience here is a position."
+            ),
+            "do": "Watch and wait. Re-scan when conditions shift.",
+            "dont": "Force a trade. STAND DOWN is a protection, not a failure.",
+        },
+    ]
+
+    with st.expander("🚦 Signal Guide — what do the tiers mean?", expanded=False):
+        st.markdown(
+            "<p style='color:var(--text-muted,#888);font-size:0.85rem;margin-bottom:0.75rem;'>"
+            "New here? This guide explains every signal level the system can show you."
+            "</p>",
+            unsafe_allow_html=True,
+        )
+        for t in tiers:
+            st.markdown(
+                f"""
+                <div style='
+                    border-left:4px solid {t["border"]};
+                    background:{t["bg"]};
+                    border-radius:8px;
+                    padding:12px 16px;
+                    margin-bottom:10px;
+                '>
+                  <div style='display:flex;align-items:center;gap:8px;margin-bottom:4px;'>
+                    <span style='font-size:1.1rem;'>{t["icon"]}</span>
+                    <strong style='color:{t["color"]};font-size:1rem;letter-spacing:0.04em;'>{t["label"]}</strong>
+                    <span style='color:#888;font-size:0.82rem;'>— {t["headline"]}</span>
+                  </div>
+                  <div style='font-size:0.88rem;line-height:1.55;margin-bottom:6px;'>{t["body"]}</div>
+                  <div style='display:flex;gap:24px;font-size:0.82rem;margin-top:4px;'>
+                    <span><strong style='color:#0a7d2a;'>✓ Do:</strong> {t["do"]}</span>
+                    <span><strong style='color:#a8261f;'>✗ Don't:</strong> {t["dont"]}</span>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        st.markdown(
+            "<p style='color:#888;font-size:0.78rem;margin-top:4px;'>"
+            "All signals are paper-trade simulations only — no real money is at risk. "
+            "Confidence is built from 7 technical factors: RSI, MACD, Bollinger %b, Trend, "
+            "Regime, Volume Surge, and Momentum ROC."
+            "</p>",
+            unsafe_allow_html=True,
+        )
+
+
 def pnl_strip(daily: float, weekly: float, monthly: float, ytd: float) -> None:
     def _fmt(v: float) -> str:
         sign = "+" if v >= 0 else "−"

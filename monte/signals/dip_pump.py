@@ -140,8 +140,55 @@ def _score_regime(regime: RegimeLabel, adx: float) -> float:
     return 0.0
 
 
+def _score_volume(df: pd.DataFrame, close: pd.Series, window: int = 20) -> float:
+    """Volume surge confirmation: high volume in the direction of price move.
+
+    Institutional accumulation/distribution tends to arrive on above-average
+    volume. A 2× surge with a positive price move = bullish confirmation.
+    Returns 0.0 if no Volume column is available (e.g., Coinbase feed).
+    """
+    if "Volume" not in df.columns or len(df) < window + 2:
+        return 0.0
+    try:
+        vol = df["Volume"].astype(float)
+        avg_vol = float(vol.iloc[-window - 1:-1].mean())
+        last_vol = float(vol.iloc[-1])
+        if avg_vol <= 0 or last_vol <= 0:
+            return 0.0
+        ratio = last_vol / avg_vol
+        price_move = float(close.iloc[-1]) - float(close.iloc[-2])
+        direction = 1.0 if price_move > 0 else (-1.0 if price_move < 0 else 0.0)
+        surge = min(1.0, max(0.0, (ratio - 0.8) / 1.7))
+        return direction * surge
+    except Exception:
+        return 0.0
+
+
+def _score_momentum(close: pd.Series, period: int = 10) -> float:
+    """Rate-of-change momentum: price % change over `period` bars, normalised.
+
+    Captures medium-term momentum that RSI and MACD can lag. A 5% move over
+    10 bars maps to ±1.0. Works for both crypto (high vol) and equities.
+    """
+    if len(close) < period + 2:
+        return 0.0
+    try:
+        roc = float(close.iloc[-1]) / max(float(close.iloc[-(period + 1)]), 1e-9) - 1.0
+        return max(-1.0, min(1.0, roc * 18))
+    except Exception:
+        return 0.0
+
+
 def detect(df: pd.DataFrame, symbol: str = "", timeframe: str = "") -> Alert:
-    """Triangulate RSI / MACD / BB / trend / regime into a directional alert."""
+    """Triangulate RSI / MACD / BB / Trend / Regime / Volume / Momentum into a
+    directional alert.
+
+    Seven-factor model. Volume and Momentum extend the original five-factor
+    framework with institutional-flow and price-persistence signals from the
+    discretionary-investor playbooks (O'Neil CANSLIM volume confirmation;
+    Livermore/Druckenmiller momentum continuation). All factors are normalised
+    to [-1, 1] before weighting so no single indicator dominates.
+    """
     if df is None or df.empty or "Close" not in df.columns:
         return _hold_fallback(symbol, timeframe, 0.0)
 
@@ -155,12 +202,17 @@ def detect(df: pd.DataFrame, symbol: str = "", timeframe: str = "") -> Alert:
         macd_hist = float(macd(close)["hist"].iloc[-1])
         regime_result = classify_regime(df)
 
+        vol_score = _score_volume(df, close)
+        mom_score = _score_momentum(close)
+
         contributions = [
-            {"name": "RSI",    "score": _score_rsi(last_rsi, regime_result.adx), "weight": 0.25},
-            {"name": "MACD",   "score": _score_macd(macd_hist, spot),       "weight": 0.20},
-            {"name": "BB %b",  "score": _score_bb(pctb, regime_result.adx), "weight": 0.20},
-            {"name": "Trend",  "score": _score_trend(close),                "weight": 0.20},
-            {"name": "Regime", "score": _score_regime(regime_result.regime, regime_result.adx), "weight": 0.15},
+            {"name": "RSI",      "score": _score_rsi(last_rsi, regime_result.adx), "weight": 0.22},
+            {"name": "MACD",     "score": _score_macd(macd_hist, spot),             "weight": 0.18},
+            {"name": "BB %b",    "score": _score_bb(pctb, regime_result.adx),       "weight": 0.17},
+            {"name": "Trend",    "score": _score_trend(close),                      "weight": 0.18},
+            {"name": "Regime",   "score": _score_regime(regime_result.regime, regime_result.adx), "weight": 0.12},
+            {"name": "Volume",   "score": vol_score,                                "weight": 0.08},
+            {"name": "Momentum", "score": mom_score,                                "weight": 0.05},
         ]
         score = sum(c["score"] * c["weight"] for c in contributions)
         score = max(-1.0, min(1.0, score))
@@ -211,6 +263,8 @@ def detect(df: pd.DataFrame, symbol: str = "", timeframe: str = "") -> Alert:
                 "macd_hist": macd_hist,
                 "adx": regime_result.adx,
                 "atr_pct": atr_value / max(spot, 1e-9),
+                "volume_score": vol_score,
+                "momentum_roc": mom_score,
             },
         )
     except Exception:
