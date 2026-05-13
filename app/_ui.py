@@ -92,6 +92,93 @@ def inject_global_css() -> None:
             background: rgba(127,127,127,0.18);
             margin: 8px 0 6px 0;
         }
+        .spy-chips {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 8px;
+            margin: 6px 0 10px 0;
+        }
+        .spy-chip {
+            padding: 8px 10px;
+            border: 1px solid rgba(127,127,127,0.22);
+            border-radius: 10px;
+            min-width: 0;
+        }
+        .spy-chip .spy-chip-label {
+            font-size: 0.72rem;
+            color: #6b7280;
+            letter-spacing: 0.2px;
+            text-transform: uppercase;
+        }
+        .spy-chip .spy-chip-value {
+            font-weight: 700;
+            font-size: 1.05rem;
+            line-height: 1.25;
+            word-break: break-word;
+            white-space: normal;
+        }
+        .spy-chip .spy-chip-sub {
+            font-size: 0.72rem;
+            color: #6b7280;
+            margin-top: 2px;
+        }
+        .spy-plain {
+            border: 1px solid rgba(127,127,127,0.22);
+            border-left: 4px solid #1d4ed8;
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin: 8px 0;
+            background: rgba(29,78,216,0.04);
+        }
+        .spy-plain h4 {
+            margin: 0 0 4px 0;
+            font-size: 0.95rem;
+            font-weight: 700;
+        }
+        .spy-plain ul { margin: 4px 0 0 0; padding-left: 18px; }
+        .spy-plain li { margin: 2px 0; font-size: 0.9rem; }
+        .spy-stream {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.78rem;
+            color: #0a7d2a;
+            font-weight: 600;
+        }
+        .spy-stream::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #0a7d2a;
+            box-shadow: 0 0 0 0 rgba(10,125,42,0.6);
+            animation: spy-pulse 1.4s infinite;
+        }
+        @keyframes spy-pulse {
+            0%   { box-shadow: 0 0 0 0 rgba(10,125,42,0.55); }
+            70%  { box-shadow: 0 0 0 8px rgba(10,125,42,0.0); }
+            100% { box-shadow: 0 0 0 0 rgba(10,125,42,0.0); }
+        }
+        /* --- Mobile (≤ 640px): stack the 2-up card grid and shrink chips --- */
+        @media (max-width: 640px) {
+            [data-testid="stHorizontalBlock"] {
+                flex-direction: column !important;
+                gap: 8px !important;
+            }
+            [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+                width: 100% !important;
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+            }
+            .spy-chips {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .spy-card-header {
+                flex-wrap: wrap;
+            }
+            .spy-card-header h3 { font-size: 1rem; }
+            .spy-pill { font-size: 0.72rem; padding: 2px 8px; }
+        }
         </style>
         """,
         unsafe_allow_html=True,

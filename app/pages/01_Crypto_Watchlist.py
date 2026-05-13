@@ -75,6 +75,134 @@ def _horizon_pill(horizon_value: str) -> str:
     )
 
 
+_REGIME_SHORT = {
+    "TRENDING_UP": ("Uptrend", "Buyers are in control"),
+    "TRENDING_DOWN": ("Downtrend", "Sellers are in control"),
+    "RANGING": ("Range", "Stuck between support & resistance"),
+    "VOLATILE": ("Volatile", "Choppy — no clear direction"),
+}
+
+
+def _regime_display(regime_value: str) -> tuple[str, str]:
+    return _REGIME_SHORT.get(str(regime_value).upper(), (str(regime_value).title(), ""))
+
+
+def _render_metric_chips(
+    spot: float,
+    src: str,
+    last_rsi: float,
+    bb_pctb: float,
+    macd_hist: float,
+    regime_value: str,
+    adx: float,
+) -> None:
+    """Mobile-friendly chip grid — wraps on phones, no value truncation."""
+    regime_label, _ = _regime_display(regime_value)
+    html = (
+        "<div class='spy-chips'>"
+        f"<div class='spy-chip'><div class='spy-chip-label'>Spot</div>"
+        f"<div class='spy-chip-value'>${spot:,.2f}</div>"
+        f"<div class='spy-chip-sub'>source: {src}</div></div>"
+        f"<div class='spy-chip'><div class='spy-chip-label'>RSI(14)</div>"
+        f"<div class='spy-chip-value'>{last_rsi:.0f}</div>"
+        f"<div class='spy-chip-sub'>&lt;30 oversold · &gt;70 overbought</div></div>"
+        f"<div class='spy-chip'><div class='spy-chip-label'>BB %b</div>"
+        f"<div class='spy-chip-value'>{bb_pctb:.2f}</div>"
+        f"<div class='spy-chip-sub'>0 = lower · 1 = upper</div></div>"
+        f"<div class='spy-chip'><div class='spy-chip-label'>MACD hist</div>"
+        f"<div class='spy-chip-value'>{macd_hist:+.3f}</div>"
+        f"<div class='spy-chip-sub'>+ = bullish momentum</div></div>"
+        f"<div class='spy-chip'><div class='spy-chip-label'>Regime</div>"
+        f"<div class='spy-chip-value'>{regime_label}</div>"
+        f"<div class='spy-chip-sub'>ADX {adx:.0f}</div></div>"
+        "</div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def _plain_english_guide(
+    action: str,
+    confidence: float,
+    last_rsi: float,
+    bb_pctb: float,
+    macd_hist: float,
+    regime_value: str,
+    alert,
+) -> None:
+    """Friendly 'should I buy?' explainer in everyday language."""
+    act = str(action).upper()
+    regime_label, regime_blurb = _regime_display(regime_value)
+
+    if act in {"STRONG_BUY", "BUY"}:
+        verdict = "✅ Lean BUY"
+        headline = (
+            "The signals are leaning bullish — there's a setup the model "
+            "wants to take."
+        )
+    elif act in {"STRONG_SELL", "SELL"}:
+        verdict = "🔻 Lean SELL / short"
+        headline = (
+            "The signals are leaning bearish — the model sees more downside "
+            "than upside here."
+        )
+    else:
+        verdict = "⏸ HOLD — do nothing"
+        headline = (
+            "No clean setup right now. Sitting out is the trade. "
+            "Waiting beats forcing it."
+        )
+
+    bullets: list[str] = []
+
+    if last_rsi <= 30:
+        bullets.append(f"**RSI {last_rsi:.0f}** — oversold; bounces often start here.")
+    elif last_rsi >= 70:
+        bullets.append(f"**RSI {last_rsi:.0f}** — overbought; pullback risk is high.")
+    else:
+        bullets.append(f"**RSI {last_rsi:.0f}** — neutral, no extreme to fade.")
+
+    if bb_pctb <= 0.1:
+        bullets.append(f"**BB %b {bb_pctb:.2f}** — pressed against the lower band (cheap-ish).")
+    elif bb_pctb >= 0.9:
+        bullets.append(f"**BB %b {bb_pctb:.2f}** — pinned to the upper band (extended).")
+    else:
+        bullets.append(f"**BB %b {bb_pctb:.2f}** — mid-channel, no edge.")
+
+    if macd_hist > 0.01:
+        bullets.append(f"**MACD {macd_hist:+.3f}** — momentum is positive.")
+    elif macd_hist < -0.01:
+        bullets.append(f"**MACD {macd_hist:+.3f}** — momentum is negative.")
+    else:
+        bullets.append(f"**MACD {macd_hist:+.3f}** — flat momentum.")
+
+    bullets.append(f"**Regime: {regime_label}** — {regime_blurb}.")
+
+    if act not in {"HOLD"}:
+        bullets.append(
+            f"**Plan:** entry ~${alert.entry:,.2f} · stop ${alert.stop:,.2f} · "
+            f"target ${alert.target:,.2f} · risk/reward {alert.rr:.2f}× · "
+            f"confidence {confidence:.0f}%."
+        )
+    else:
+        bullets.append(
+            "**What to do:** keep this on the watchlist. A clean RSI extreme, "
+            "a band tag with MACD flipping, or a 20/50 cross is what wakes it up."
+        )
+
+    li = "".join(f"<li>{b}</li>" for b in bullets)
+    st.markdown(
+        f"<div class='spy-plain'>"
+        f"<h4>🧭 Should I buy? — {verdict}</h4>"
+        f"<div style='font-size:0.9rem;'>{headline}</div>"
+        f"<ul>{li}</ul>"
+        f"<div class='spy-chip-sub' style='margin-top:6px;'>"
+        f"This is educational, not advice. Sizing &amp; stops are on you."
+        f"</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _render_contributions(contribs: list[dict]) -> None:
     if not contribs:
         return
@@ -305,12 +433,26 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
         kind = "ok" if cross.kind == "golden" else "err"
         st.markdown(status_pill(cross.label(), kind), unsafe_allow_html=True)
 
-    m = st.columns(5)
-    m[0].metric("Spot", f"${spot:,.2f}", help=f"source: {src}")
-    m[1].metric("RSI(14)", f"{last_rsi:.0f}", help="<30 oversold · >70 overbought")
-    m[2].metric("BB %b", f"{float(bb_row['bb_pctb']):.2f}", help="0=lower, 1=upper")
-    m[3].metric("MACD hist", f"{macd_hist:+.3f}", help="positive = bullish momentum")
-    m[4].metric("Regime", regime.regime.value, f"ADX {regime.adx:.0f}")
+    bb_pctb = float(bb_row["bb_pctb"])
+    _render_metric_chips(
+        spot=spot,
+        src=src,
+        last_rsi=last_rsi,
+        bb_pctb=bb_pctb,
+        macd_hist=macd_hist,
+        regime_value=regime.regime.value,
+        adx=regime.adx,
+    )
+
+    _plain_english_guide(
+        action=alert.action.value,
+        confidence=float(alert.confidence or 0),
+        last_rsi=last_rsi,
+        bb_pctb=bb_pctb,
+        macd_hist=macd_hist,
+        regime_value=regime.regime.value,
+        alert=alert,
+    )
 
     # Full chart: candles + BB + SMA20/50/200 + volume + RSI + MACD + cross marker.
     chart_df = df.tail(400)
@@ -409,14 +551,20 @@ def main() -> None:
     timeframe = st.sidebar.selectbox(
         "Timeframe",
         ["1m", "5m", "15m", "30m", "1h", "1d"],
-        index=2,  # default 15m
+        index=1,  # default 5m
         help="1m = highest resolution (yfinance limit: last 7 days only).",
     )
     refresh_secs = st.sidebar.select_slider(
-        "Auto-refresh",
+        "Auto-refresh (streaming)",
         options=[5, 15, 30, 60, 120, 300],
-        value=30,
-        help="How often the cards re-pull candles and live prices.",
+        value=5,
+        help="Lower = more stream-like. 5s pulls candles & live prices "
+        "almost continuously.",
+    )
+    st.sidebar.markdown(
+        f"<span class='spy-stream'>● live · streaming every {refresh_secs}s "
+        f"({timeframe} candles)</span>",
+        unsafe_allow_html=True,
     )
     st_autorefresh(interval=refresh_secs * 1000, key="watchlist_refresh")
     news_enabled = st.sidebar.checkbox(
@@ -427,6 +575,11 @@ def main() -> None:
     )
     symbols = crypto + stocks
 
+    st.markdown(
+        f"<span class='spy-stream'>● live · streaming every {refresh_secs}s "
+        f"({timeframe} candles)</span>",
+        unsafe_allow_html=True,
+    )
     st.caption(
         "Live indicator dashboard. Every card shows a clear BUY / SELL / HOLD "
         "with a trade horizon (Day Trade / Swing / Long-Term Hold). "
