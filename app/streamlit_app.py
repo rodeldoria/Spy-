@@ -19,8 +19,11 @@ from app._ui import (
     inject_global_css,
     loading,
     status_pill,
+    target_progress,
 )
 from monte.alerts.engine import scan_once, tail_alerts
+from monte.broker.ledger import build_summary, monthly_realised
+from monte.broker.paper_book import PaperBook
 from monte.config import settings
 
 
@@ -90,6 +93,17 @@ def main() -> None:
         " regime / Monte Carlo zone / vector-pattern similarity. **No automated"
         " execution — signals only.**"
     )
+
+    # Monthly P&L vs target — informational tracker.
+    try:
+        book = PaperBook(state_path=settings.paper_state_path)
+        summary = build_summary(book.trades())
+        realised_month = monthly_realised(summary.rows, ts_now=time.time())
+        target_progress(realised_month, target=float(settings.monthly_target_usd))
+    except Exception:
+        # If the paper book can't be read for any reason, skip the tracker —
+        # it's a motivator, not a critical path.
+        pass
 
     if run_inline:
         symbols = crypto + stocks

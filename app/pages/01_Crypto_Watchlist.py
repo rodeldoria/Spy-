@@ -31,10 +31,12 @@ from app._ui import (
 )
 from app.signals import rsi as rsi_signal
 from app.signals import sma_crossover, vwap_reversion
+from app._shared import pattern_store
 from monte import journal
 from monte.indicators.regime import classify_regime
 from monte.indicators.technical import bollinger, macd, rsi
 from monte.intel import perplexity
+from monte.patterns.match import find_similar
 from monte.signals.dip_pump import detect
 from monte.signals.horizon import HORIZON_HOLD_HINT, HORIZON_LABEL
 from monte.strategies.signals import action_from_score
@@ -104,7 +106,14 @@ def _render_news(sym: str, action_label: str, news_enabled: bool) -> None:
         st.caption("Watch for: " + " · ".join(brief.catalysts))
 
 
-def _render_journal(sym: str, action_label: str, snapshot: dict[str, float]) -> None:
+def _render_journal(
+    sym: str,
+    action_label: str,
+    snapshot: dict[str, float],
+    df,
+    timeframe: str,
+) -> None:
+    # Journal-based memory (KNN over indicator snapshots of past paper trades).
     history = journal.similar_history(
         symbol=sym, action=action_label, snapshot=snapshot, k=5
     )
@@ -113,20 +122,51 @@ def _render_journal(sym: str, action_label: str, snapshot: dict[str, float]) -> 
             "🧠 Journal: no similar past setups yet. Log entries on this card "
             "to teach future confirmation."
         )
+    else:
+        win_kind = "ok" if history.win_rate >= 60 else ("warn" if history.win_rate >= 40 else "err")
+        st.markdown(
+            "🧠 **Journal** "
+            + status_pill(
+                f"{history.count} similar · {history.win_rate:.0f}% wins · avg {history.avg_pnl_pct:+.2f}%",
+                win_kind,
+            ),
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            f"Best {history.best_pnl_pct:+.2f}% · worst {history.worst_pnl_pct:+.2f}% "
+            "across nearest neighbours by indicator distance."
+        )
+
+    # Pattern-library memory (vector store of past OHLCV windows + forward
+    # returns). Cold-start until the user runs `python -m monte.patterns.ingest`.
+    try:
+        match = find_similar(sym, timeframe, df, k=20, store=pattern_store())
+    except Exception as e:
+        st.caption(f"📚 Pattern library unavailable: {e}")
         return
-    win_kind = "ok" if history.win_rate >= 60 else ("warn" if history.win_rate >= 40 else "err")
+    if match.cold_start:
+        st.caption(
+            "📚 Pattern library cold-start — ingest history with "
+            "`python -m monte.patterns.ingest <symbol> <interval> --years 1`."
+        )
+        return
+    lib_win_pct = match.win_rate * 100
+    lib_kind = "ok" if lib_win_pct >= 55 else ("warn" if lib_win_pct >= 45 else "err")
     st.markdown(
-        "🧠 **Journal** "
+        "📚 **Pattern library** "
         + status_pill(
-            f"{history.count} similar · {history.win_rate:.0f}% wins · avg {history.avg_pnl_pct:+.2f}%",
-            win_kind,
+            f"K={match.k} similar · {lib_win_pct:.0f}% wins · mean fwd-20 {match.mean_fwd_20*100:+.2f}%",
+            lib_kind,
         ),
         unsafe_allow_html=True,
     )
-    st.caption(
-        f"Best {history.best_pnl_pct:+.2f}% · worst {history.worst_pnl_pct:+.2f}% "
-        "across nearest neighbours by indicator distance."
-    )
+
+    # Flag mixed evidence so the user can size down when memories disagree.
+    if history.count and abs(history.win_rate - lib_win_pct) > 25:
+        st.markdown(
+            status_pill("mixed evidence — journal & pattern library disagree", "warn"),
+            unsafe_allow_html=True,
+        )
 
 
 def _render_journal_controls(
@@ -259,7 +299,7 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
 
     st.markdown("<div class='spy-divider'></div>", unsafe_allow_html=True)
     _render_news(sym, alert.action.value, news_enabled)
-    _render_journal(sym, alert.action.value, alert.indicator_snapshot)
+    _render_journal(sym, alert.action.value, alert.indicator_snapshot, df, timeframe)
     _render_journal_controls(sym, timeframe, alert)
 
     st.markdown("<div class='spy-divider'></div>", unsafe_allow_html=True)

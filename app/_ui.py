@@ -175,3 +175,25 @@ def loading(message: str):
     """Spinner that always shows even when work is fast — feels less demo-y."""
     with st.spinner(message):
         yield
+
+
+def target_progress(realised_pnl: float, target: float = 4000.0) -> None:
+    """Render a 'realised $X / $4,000 this month' progress bar.
+
+    Informational only — the dashboard does not execute trades, so this is a
+    motivator, not a guarantee.
+    """
+    target = max(float(target), 1.0)
+    progress = max(0.0, min(1.0, float(realised_pnl) / target))
+    kind = "ok" if progress >= 1.0 else ("info" if realised_pnl >= 0 else "warn")
+    st.progress(
+        progress,
+        text=f"Monthly P&L · ${realised_pnl:,.2f} / ${target:,.0f} target",
+    )
+    st.markdown(
+        status_pill(
+            f"{progress * 100:.0f}% of target · informational, not a guarantee",
+            kind,
+        ),
+        unsafe_allow_html=True,
+    )

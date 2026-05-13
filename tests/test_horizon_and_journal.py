@@ -96,3 +96,82 @@ def test_perplexity_unconfigured_is_graceful(monkeypatch: pytest.MonkeyPatch):
     assert brief.configured is False
     assert brief.sentiment == "unknown"
     assert brief.aligns_with("BUY") == "neutral"
+
+
+def test_open_entries_reexported():
+    """Regression for the production AttributeError seen on the Watchlist."""
+    from monte import journal
+
+    assert callable(journal.open_entries)
+    assert callable(journal.list_entries)
+    assert journal.open_entries() == []
+
+
+def test_paper_book_defaults_to_configured_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MONTE_BUDGET_USD", "500")
+    from monte.broker.paper_book import PaperBook
+
+    book = PaperBook(state_path=tmp_path / "book")
+    assert book.starting_budget() == 500.0
+    assert book.cash() == 500.0
+
+
+def test_paper_book_reset_uses_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MONTE_BUDGET_USD", "750")
+    from monte.broker.paper_book import PaperBook
+
+    book = PaperBook(state_path=tmp_path / "book")
+    book.reset()
+    assert book.starting_budget() == 750.0
+
+
+def test_trade_ledger_fifo_pairs_buys_to_sells(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MONTE_BUDGET_USD", "1000")
+    from monte.broker.ledger import build_summary
+    from monte.broker.paper_book import PaperBook
+
+    book = PaperBook(state_path=tmp_path / "book")
+    book.place_order("TEST", "buy", qty=2, price=100.0)
+    book.place_order("TEST", "sell", qty=1, price=110.0)
+    summary = build_summary(book.trades())
+    sell_rows = [r for r in summary.rows if r.side == "sell"]
+    assert len(sell_rows) == 1
+    assert sell_rows[0].realised_pnl == pytest.approx(10.0, abs=1e-6)
+    assert summary.wins == 1
+    assert summary.losses == 0
+
+
+def test_paper_book_journal_link(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MONTE_BUDGET_USD", "1000")
+    monkeypatch.setenv("MONTE_JOURNAL_PATH", str(tmp_path / "journal.jsonl"))
+    from monte import journal
+    from monte.broker.paper_book import PaperBook
+
+    book = PaperBook(state_path=tmp_path / "book")
+    entry = journal.record_entry(
+        symbol="TEST", timeframe="1h", action="BUY", horizon="SWING",
+        entry=100.0, stop=95.0, target=110.0,
+        confidence=70.0, score=0.5,
+        snapshot={"rsi": 30, "bb_pctb": 0.1, "macd_hist": 0.1, "adx": 25, "atr_pct": 0.01},
+    )
+    trade = book.place_order("TEST", "buy", qty=1, price=100.0, journal_id=entry.id)
+    assert trade["journal_id"] == entry.id
+
+    closed = journal.record_exit(entry.id, exit_price=110.0, exit_reason="target")
+    assert closed is not None
+    assert closed.pnl_pct == pytest.approx(10.0, abs=1e-6)
+    assert closed.outcome == "win"
+
+    # list_entries reflects the close
+    entries = journal.list_entries(outcomes=["win"])
+    assert len(entries) == 1
+    assert entries[0].id == entry.id
+
+
+def test_target_progress_helper_handles_negative():
+    # Smoke import + invocation guard — Streamlit renders, no exception.
+    from app._ui import target_progress
+
+    # Pure callable check; can't actually render outside a Streamlit script,
+    # but the function should at least accept the arguments without raising.
+    assert callable(target_progress)

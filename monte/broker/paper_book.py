@@ -2,10 +2,18 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+
+def _configured_default_budget() -> float:
+    try:
+        return float(os.environ.get("MONTE_BUDGET_USD", "500"))
+    except ValueError:
+        return 500.0
 
 
 class InsufficientFunds(Exception):
@@ -37,7 +45,8 @@ class PaperBook:
             self._state = self._default_state()
 
     def _default_state(self) -> dict[str, Any]:
-        return {"cash": 10000.0, "starting": 10000.0, "positions": {}, "trades": []}
+        budget = _configured_default_budget()
+        return {"cash": budget, "starting": budget, "positions": {}, "trades": []}
 
     def _save(self) -> None:
         self._state_file.write_text(json.dumps(self._state, indent=2))
@@ -46,12 +55,18 @@ class PaperBook:
         return float(self._state.get("cash", 0.0))
 
     def starting_budget(self) -> float:
-        return float(self._state.get("starting", 10000.0))
+        return float(self._state.get("starting", _configured_default_budget()))
 
     def positions(self) -> dict[str, Any]:
         return self._state.get("positions", {})
 
-    def reset(self, budget: float = 10000.0) -> None:
+    def trades(self) -> list[dict[str, Any]]:
+        """Return the append-only trade ledger (oldest first)."""
+        return list(self._state.get("trades", []))
+
+    def reset(self, budget: float | None = None) -> None:
+        if budget is None:
+            budget = _configured_default_budget()
         self._state = self._default_state()
         self._state["cash"] = budget
         self._state["starting"] = budget
@@ -64,7 +79,13 @@ class PaperBook:
         qty: float,
         price: float,
         note: str = "",
-    ) -> None:
+        journal_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Place a paper order and append it to the trade ledger.
+
+        Returns the trade record (with ts) so callers can correlate with a
+        journal entry. `journal_id` is stored on the trade for later lookup.
+        """
         cost = qty * price * (1 + 0.0005)
         if side == "buy":
             if cost > self._state["cash"]:
@@ -91,10 +112,18 @@ class PaperBook:
             else:
                 self._state["positions"][symbol] = pos
 
-        self._state.setdefault("trades", []).append(
-            {"ts": time.time(), "symbol": symbol, "side": side, "qty": qty, "price": price, "note": note}
-        )
+        trade = {
+            "ts": time.time(),
+            "symbol": symbol,
+            "side": side,
+            "qty": qty,
+            "price": price,
+            "note": note,
+            "journal_id": journal_id,
+        }
+        self._state.setdefault("trades", []).append(trade)
         self._save()
+        return trade
 
     def mark_to_market(self, prices: dict[str, float]) -> MarkResult:
         positions_snap = {}

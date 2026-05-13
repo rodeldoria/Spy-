@@ -7,7 +7,8 @@ import pandas as pd
 import streamlit as st
 
 from app._shared import live_price, setup_page
-from app._ui import inject_global_css, loading, status_pill
+from app._ui import inject_global_css, loading, status_pill, target_progress
+from monte import journal
 from monte.alerts.engine import tail_alerts
 from monte.broker.paper_book import InsufficientFunds, PaperBook
 from monte.config import settings
@@ -34,6 +35,17 @@ def main() -> None:
             st.success(f"Reset to ${new_budget:,.2f}")
 
     book = _book(settings.paper_state_path)
+    # Auto-migrate legacy $10k books to the new $500 default — but only when
+    # there are no trades yet, so we never wipe an in-flight book.
+    if (
+        not book.trades()
+        and not book.positions()
+        and book.starting_budget() >= 9_999
+        and float(settings.budget_usd) <= 1_000
+    ):
+        book.reset(budget=float(settings.budget_usd))
+        st.toast(f"Migrated legacy $10k paper book to ${settings.budget_usd:,.0f}.")
+
     cash = book.cash()
     starting = book.starting_budget()
 
@@ -59,6 +71,13 @@ def main() -> None:
         f"{((eq.equity if eq else cash) / starting - 1):+.2%}",
     )
     cols[3].metric("Positions", str(len(positions)))
+
+    # Monthly P&L vs the dashboard target.
+    from monte.broker.ledger import build_summary, monthly_realised
+    import time as _time
+    summary = build_summary(book.trades())
+    realised_month = monthly_realised(summary.rows, ts_now=_time.time())
+    target_progress(realised_month, target=float(settings.monthly_target_usd))
 
     st.subheader("Open positions")
     if eq and eq.positions:
@@ -109,14 +128,29 @@ def main() -> None:
                 action_buy = st.button(f"Paper-buy {qty} {r.get('symbol')}", key=f"b-{r.get('hash','')}-{spot}")
                 if action_buy:
                     try:
+                        snap = r.get("indicator_snapshot") or {}
+                        entry = journal.record_entry(
+                            symbol=r.get("symbol"),
+                            timeframe=r.get("timeframe", ""),
+                            action=r.get("action", "BUY"),
+                            horizon=r.get("horizon", ""),
+                            entry=spot,
+                            stop=stop,
+                            target=float(r.get("target", spot)),
+                            confidence=float(r.get("confidence", 0)),
+                            score=float(r.get("score", 0)),
+                            snapshot=snap,
+                            note=f"alert {r.get('hash','')}",
+                        )
                         book.place_order(
                             r.get("symbol"),
                             "buy",
                             qty,
                             spot,
                             note=f"alert {r.get('hash','')}",
+                            journal_id=entry.id,
                         )
-                        st.success("Filled.")
+                        st.success(f"Filled · journal entry {entry.id}")
                         st.rerun()
                     except InsufficientFunds as e:
                         st.error(str(e))
