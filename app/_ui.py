@@ -205,6 +205,53 @@ def inject_global_css() -> None:
             .spy-fc-price { font-size: 0.95rem; }
         }
 
+        /* ── Metric strip — replaces st.columns(5) of st.metric ── */
+        .spy-metric-strip {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+            gap: 6px;
+            margin: 8px 0 12px 0;
+        }
+        .spy-metric-cell {
+            border: 1px solid rgba(127,127,127,0.20);
+            border-radius: 8px;
+            padding: 8px 10px;
+            background: rgba(127,127,127,0.04);
+            min-width: 0;
+            overflow: hidden;
+        }
+        .spy-metric-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #94a3b8;
+        }
+        .spy-metric-value {
+            font-size: 1.15rem;
+            font-weight: 700;
+            line-height: 1.25;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 2px;
+        }
+        .spy-metric-sub {
+            font-size: 0.66rem;
+            color: #6b7280;
+            margin-top: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        @media (max-width: 768px) {
+            .spy-metric-strip { grid-template-columns: repeat(3, 1fr); }
+            .spy-metric-value { font-size: 1.0rem; }
+        }
+        @media (max-width: 480px) {
+            .spy-metric-strip { grid-template-columns: repeat(2, 1fr); }
+        }
+
         /* ── BUY / SELL pulse animations ── */
         @keyframes buy-pulse {
             0%   { box-shadow: 0 0 0 0   rgba(10,125,42,0.70); }

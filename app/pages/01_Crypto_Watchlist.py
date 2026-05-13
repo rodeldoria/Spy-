@@ -87,7 +87,8 @@ def _render_forecast_grid(close, spot: float, timeframe: str, sym: str) -> None:
     """
     try:
         projections = standard_horizons(close, spot, timeframe)
-    except Exception:
+    except Exception as e:
+        st.caption(f"⚠️ Forecast unavailable: {e}")
         return
     if not projections:
         return
@@ -416,12 +417,42 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
 
     _render_forecast_grid(close, spot, timeframe, sym)
 
-    m = st.columns(5)
-    m[0].metric("Spot", f"${spot:,.2f}", help=f"source: {src}")
-    m[1].metric("RSI(14)", f"{last_rsi:.0f}", help="<30 oversold · >70 overbought")
-    m[2].metric("BB %b", f"{float(bb_row['bb_pctb']):.2f}", help="0=lower, 1=upper")
-    m[3].metric("MACD hist", f"{macd_hist:+.3f}", help="positive = bullish momentum")
-    m[4].metric("Regime", regime.regime.value, f"ADX {regime.adx:.0f}")
+    import html as _html
+
+    regime_short = regime.regime.value.replace("TRENDING_", "TREND ").replace("_", " ")
+    if regime.adx >= 25:
+        adx_color = "#0a7d2a"
+        adx_arrow = "▲"
+    elif regime.adx <= 15:
+        adx_color = "#a8261f"
+        adx_arrow = "▼"
+    else:
+        adx_color = "#6b7280"
+        adx_arrow = "→"
+    adx_sub = (
+        f"<span style='color:{adx_color};font-weight:600;'>"
+        f"{adx_arrow} ADX {regime.adx:.0f}</span>"
+    )
+
+    metrics_cells = [
+        ("Spot", f"${spot:,.2f}", f"source: {src}", None),
+        ("RSI(14)", f"{last_rsi:.0f}", "<30 oversold · >70 overbought", None),
+        ("BB %b", f"{float(bb_row['bb_pctb']):.2f}", "0 = lower · 1 = upper", None),
+        ("MACD", f"{macd_hist:+.3f}", "positive = bullish momentum", None),
+        ("Regime", regime_short, "trend strength below", adx_sub),
+    ]
+    metrics_html = "".join(
+        f"<div class='spy-metric-cell' title='{_html.escape(tooltip)}'>"
+        f"<div class='spy-metric-label'>{_html.escape(label)}</div>"
+        f"<div class='spy-metric-value'>{_html.escape(value)}</div>"
+        f"<div class='spy-metric-sub'>{sub_html if sub_html else _html.escape(tooltip)}</div>"
+        f"</div>"
+        for label, value, tooltip, sub_html in metrics_cells
+    )
+    st.markdown(
+        f"<div class='spy-metric-strip'>{metrics_html}</div>",
+        unsafe_allow_html=True,
+    )
 
     chart_df = df.tail(400)
     st.plotly_chart(
