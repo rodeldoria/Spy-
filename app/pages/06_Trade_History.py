@@ -21,6 +21,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from app._premortem_panel import render_premortem_panel
 from app._shared import live_price, setup_page
 from app._ui import inject_global_css, status_pill, target_progress
 from monte import journal
@@ -180,9 +181,58 @@ def main() -> None:
                     f"avg {sum(pnls) / len(pnls):+.2f}% · n={len(pnls)}",
                 )
 
+    # ── Premortem before you act on an open position ──────────────────────
+    st.subheader("Premortem an open position")
+    positions = book.positions()
+    if positions:
+        sym_choices = list(positions.keys())
+        chosen_sym = st.selectbox(
+            "Pre-fill from open position",
+            ["(blank)"] + sym_choices,
+            index=0,
+            help="Pick a symbol to pre-fill the plan with the current cost basis / "
+            "live mark — or leave blank and type the idea yourself.",
+        )
+        pre_title = ""
+        pre_plan = ""
+        if chosen_sym != "(blank)":
+            pos = positions[chosen_sym]
+            try:
+                mark, _ = live_price(chosen_sym)
+            except Exception:
+                mark = pos["avg_cost"]
+            pnl_pct = (mark - pos["avg_cost"]) / pos["avg_cost"] * 100 if pos["avg_cost"] else 0.0
+            pre_title = f"Open position: {chosen_sym}"
+            pre_plan = (
+                f"Holding {pos['qty']} {chosen_sym} at avg cost ${pos['avg_cost']:,.2f}. "
+                f"Live mark ${mark:,.2f} ({pnl_pct:+.2f}%). "
+                f"State the invalidation, the time-stop, and the original edge before deciding "
+                f"to add, hold, or close."
+            )
+        render_premortem_panel(
+            key_prefix="trade-history-premortem",
+            default_title=pre_title,
+            default_plan=pre_plan,
+            default_horizon="swing",
+            compact=True,
+            expanded=False,
+            intro=(
+                "Before you add to or close a position, run a quick premortem on the "
+                "thesis as it stands now. Same drill as before entry — the trade has "
+                "already failed, why?"
+            ),
+        )
+    else:
+        render_premortem_panel(
+            key_prefix="trade-history-premortem",
+            default_horizon="swing",
+            compact=True,
+            expanded=False,
+            intro="Try a premortem on the next idea you're considering — paste the plan below.",
+        )
+
     # ── Quick exit controls ────────────────────────────────────────────────
     st.subheader("Close open positions")
-    positions = book.positions()
     if not positions:
         st.caption("No open paper positions.")
         return
