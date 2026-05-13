@@ -28,6 +28,7 @@ from app._ui import (
     inject_global_css,
     loading,
     status_pill,
+    tier_pill,
 )
 from app.signals import rsi as rsi_signal
 from app.signals import sma_crossover, vwap_reversion
@@ -36,10 +37,12 @@ from monte import journal
 from monte.indicators.regime import classify_regime
 from monte.indicators.technical import bollinger, macd, rsi
 from monte.intel import perplexity
+from monte.options import suggest_contract as suggest_option
 from monte.patterns.match import find_similar
 from monte.signals.dip_pump import detect
 from monte.signals.horizon import HORIZON_HOLD_HINT, HORIZON_LABEL
 from monte.strategies.signals import action_from_score
+from monte.strategy.monte_edge import EdgeTier, evaluate as edge_evaluate
 
 
 def _sparkline(closes) -> go.Figure:
@@ -255,12 +258,31 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
 
     alert = detect(df, symbol=sym, timeframe=timeframe)
 
+    # Layer Monte Edge on top — adds tier + macro filter + reasoning.
+    spy_df = None
+    if sym.upper() != "SPY":
+        try:
+            from monte.data import prices as _prices
+
+            spy_df = _prices.get_daily("SPY", period="2y")
+        except Exception:
+            spy_df = None
+    else:
+        spy_df = df if timeframe == "1d" else None
+    try:
+        edge = edge_evaluate(df, symbol=sym, timeframe=timeframe, spy_daily=spy_df)
+    except Exception:
+        edge = None
+
     placeholder.empty()
 
+    tier_block = ""
+    if edge is not None:
+        tier_block = tier_pill(edge.tier.value, edge.confidence) + " "
     header = (
         f"<div class='spy-card-header'>"
         f"<h3>{sym}<span class='spy-meta' style='margin-left:8px'>{timeframe}</span></h3>"
-        f"<div>{action_pill(alert.action.value, alert.confidence)} "
+        f"<div>{tier_block}{action_pill(alert.action.value, alert.confidence)} "
         f"{_horizon_pill(alert.horizon.value)} "
         f"{freshness_pill(last_ts)}</div>"
         f"</div>"
@@ -270,6 +292,10 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
         f"{alert.horizon_rationale} — "
         f"{HORIZON_HOLD_HINT.get(alert.horizon, '')}"
     )
+    if edge is not None and edge.reasoning:
+        st.info(f"💡 **Why this works:** {edge.reasoning}")
+    if edge is not None and edge.macro_note:
+        st.caption(f"📊 Macro: {edge.macro_note} · confluence {edge.confluence}/5")
 
     m = st.columns(5)
     m[0].metric("Spot", f"${spot:,.2f}", help=f"source: {src}")
@@ -287,6 +313,21 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
             f"Entry **${alert.entry:,.2f}** · Stop **${alert.stop:,.2f}** · "
             f"Target **${alert.target:,.2f}** · R:R **{alert.rr:.2f}**"
         )
+        # SPY-only options ticket — only when Monte Edge says ACT_NOW or WATCH.
+        if sym.upper() == "SPY" and edge is not None and edge.tier in {EdgeTier.ACT_NOW, EdgeTier.WATCH}:
+            try:
+                direction_key = "long" if alert.score > 0 else "short"
+                ticket = suggest_option(direction_key, alert.entry)
+            except Exception:
+                ticket = None
+            if ticket:
+                st.markdown(
+                    f"📈 **Options ticket** — "
+                    f"**{ticket['side']} ${ticket['strike']:.0f}** exp. {ticket['expiry']} · "
+                    f"premium ~**${ticket['premium']:.2f}** · breakeven **${ticket['breakeven']:.2f}** · "
+                    f"max risk **${ticket['max_risk_per_contract']:.0f}**/contract"
+                )
+                st.caption(ticket.get("rationale", ""))
     else:
         st.markdown(
             status_pill("no actionable pattern · data flowing ok", "muted"),

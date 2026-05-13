@@ -14,12 +14,16 @@ from streamlit_autorefresh import st_autorefresh
 
 from app._shared import setup_page, sidebar_watchlists
 from app._ui import (
+    act_now_banner,
     action_pill,
+    drawdown_gauge,
     freshness_pill,
     inject_global_css,
     loading,
+    pnl_strip,
     status_pill,
     target_progress,
+    tier_pill,
 )
 from monte.alerts.engine import scan_once, tail_alerts
 from monte.broker.ledger import build_summary, monthly_realised
@@ -31,13 +35,20 @@ def _render_alert_row(r: dict) -> None:
     with st.container(border=True):
         cols = st.columns([2.6, 1, 1, 1, 3])
         action = r.get("action", "HOLD")
-        cols[0].markdown(
+        tier = r.get("tier", "")
+        head = (
             f"### {r.get('symbol')} "
             f"<span class='spy-meta'>{r.get('timeframe')}</span><br/>"
-            f"{action_pill(action, r.get('confidence', 0))} "
-            f"{freshness_pill(r.get('ts'))}",
-            unsafe_allow_html=True,
         )
+        if tier:
+            head += (
+                f"{tier_pill(tier, r.get('confidence', 0))} "
+                f"{action_pill(action)} "
+            )
+        else:
+            head += f"{action_pill(action, r.get('confidence', 0))} "
+        head += freshness_pill(r.get("ts"))
+        cols[0].markdown(head, unsafe_allow_html=True)
         cols[1].metric("Confidence", f"{r.get('confidence', 0):.0f}%")
         cols[2].metric("Spot", f"${r.get('spot', 0):,.2f}")
         cols[3].metric("R:R", f"{r.get('rr', 0):.2f}")
@@ -47,6 +58,9 @@ def _render_alert_row(r: dict) -> None:
                 f"Stop **${r.get('stop', 0):,.2f}** · "
                 f"Target **${r.get('target', 0):,.2f}**"
             )
+            reasoning = r.get("reasoning")
+            if reasoning:
+                st.caption(f"💡 {reasoning}")
             contribs = r.get("contributions", [])
             if contribs:
                 chips = " · ".join(
@@ -55,6 +69,13 @@ def _render_alert_row(r: dict) -> None:
                     if abs(c.get("score", 0)) > 0.05
                 )
                 st.caption(chips or "All contributions near zero.")
+            options = r.get("options_ticket")
+            if options:
+                st.caption(
+                    f"📈 Options: **{options.get('side','')} ${options.get('strike',0):.0f}** "
+                    f"{options.get('expiry','')} · premium ~${options.get('premium',0):.2f} "
+                    f"(max risk ${options.get('max_risk_per_contract',0):.0f}/contract)"
+                )
 
 
 def main() -> None:
@@ -93,6 +114,23 @@ def main() -> None:
         " regime / Monte Carlo zone / vector-pattern similarity. **No automated"
         " execution — signals only.**"
     )
+
+    # Realised P&L strip (DoD / WoW / MoM / YTD) + drawdown gauge.
+    try:
+        from datetime import datetime, timezone
+
+        book = PaperBook(state_path=settings.paper_state_path)
+        now = time.time()
+        year_start = datetime(datetime.now(timezone.utc).year, 1, 1, tzinfo=timezone.utc)
+        pnl_strip(
+            daily=book.daily_pnl(now),
+            weekly=book.weekly_pnl(now),
+            monthly=book.monthly_pnl(now),
+            ytd=book._realised_since(year_start.timestamp()),
+        )
+        drawdown_gauge(book.current_drawdown())
+    except Exception:
+        pass
 
     # Monthly P&L vs target — informational tracker.
     try:
@@ -135,6 +173,14 @@ def main() -> None:
     holds = [r for r in rows if r.get("confidence", 0) < min_conf]
     actionable.sort(key=lambda r: (-r.get("confidence", 0), -r.get("ts", 0)))
     holds.sort(key=lambda r: -r.get("ts", 0))
+
+    # Loud ACT_NOW banner — pick the most recent ACT_NOW signal in the last hour.
+    act_now_rows = [
+        r for r in actionable
+        if r.get("tier") == "ACT_NOW" and r.get("ts", 0) >= time.time() - 3600
+    ]
+    if act_now_rows:
+        act_now_banner(act_now_rows[0])
 
     st.subheader(f"Actionable ({len(actionable)})")
     if not actionable:
