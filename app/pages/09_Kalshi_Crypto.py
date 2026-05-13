@@ -1,0 +1,296 @@
+"""Kalshi Crypto — decision dashboard.
+
+Hybrid spot source: pulls Kalshi market odds automatically, while letting
+the user override the spot price if Coinbase/Binance are blocked or stale.
+For each market, surfaces:
+
+- Implied probability (from the Kalshi book) AND model probability (from a
+  driftless GBM with realised vol over time-to-close).
+- Direction (YES / NO / PASS) with model confidence %.
+- Expected value in cents per $1 for each side, plus capped Kelly fraction
+  for sizing.
+
+No automated execution. The user decides whether to bet; this just flags
+where the book and the vol model disagree.
+"""
+
+from __future__ import annotations
+
+import time
+from datetime import datetime, timezone
+
+import streamlit as st
+from streamlit_autorefresh import st_autorefresh
+
+from app._shared import setup_page
+from app._ui import inject_global_css, status_pill
+from app.kalshi import (
+    Decision,
+    KalshiClient,
+    KalshiMarket,
+    get_spot_price,
+    score_event,
+)
+from app.kalshi.spot import SpotQuote, default_sigma_per_min, manual_quote
+
+SYMBOLS = ["BTC", "ETH", "SOL"]
+HORIZONS = ["15min", "hourly", "daily", "weekly"]
+HORIZON_LABELS = {
+    "15min": "15-min Up/Down",
+    "hourly": "Hourly settlement",
+    "daily": "Daily settlement",
+    "weekly": "Weekly (Friday 5pm EDT)",
+}
+
+
+@st.cache_resource(show_spinner=False)
+def _client() -> KalshiClient:
+    return KalshiClient()
+
+
+@st.cache_data(ttl=8, show_spinner=False)
+def _fetch_markets(symbol: str, horizons: tuple[str, ...]) -> dict[str, list[KalshiMarket]]:
+    return _client().crypto_markets(symbol, horizons=horizons)
+
+
+@st.cache_data(ttl=8, show_spinner=False)
+def _fetch_spot(symbol: str) -> SpotQuote:
+    return get_spot_price(symbol)
+
+
+def _direction_pill(direction: str, confidence: float) -> str:
+    palette = {
+        "YES": ("#0a7d2a", "#e0f5e6", "🟢"),
+        "NO": ("#a8261f", "#fbe9e7", "🔴"),
+        "PASS": ("#5b6470", "#f1f3f5", "⚪"),
+    }
+    fg, bg, emoji = palette.get(direction, palette["PASS"])
+    return (
+        f"<span class='spy-pill' style='color:{fg};background:{bg};"
+        f"font-size:0.95rem;padding:4px 12px;font-weight:700;'>"
+        f"{emoji} {direction} · {confidence:.0f}%</span>"
+    )
+
+
+def _countdown(seconds: float) -> str:
+    if seconds <= 0:
+        return "closed"
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m {s % 60:02d}s"
+    if s < 86400:
+        return f"{s // 3600}h {(s % 3600) // 60:02d}m"
+    return f"{s // 86400}d {(s % 86400) // 3600:02d}h"
+
+
+def _render_decision_row(d: Decision) -> None:
+    with st.container(border=True):
+        cols = st.columns([3.0, 1.4, 1.4, 1.6])
+        cols[0].markdown(
+            f"**{d.title}**  \n"
+            f"<span class='spy-meta'>Closes in {_countdown(d.horizon_seconds)} · "
+            f"Spot ${d.spot_price:,.2f} ({d.spot_source}) · "
+            f"σ {d.sigma_per_min*100:.3f}%/min</span>",
+            unsafe_allow_html=True,
+        )
+        cols[1].markdown(
+            _direction_pill(d.direction, d.confidence_pct),
+            unsafe_allow_html=True,
+        )
+
+        # YES side
+        yes = d.yes_side
+        ev_color = "#0a7d2a" if yes.ev_per_dollar > 0 else "#a8261f"
+        cols[2].markdown(
+            f"**YES** @ {yes.ask_cents}¢ ({yes.payout:.2f}x)  \n"
+            f"<span class='spy-meta'>book {yes.implied_prob*100:.1f}% · "
+            f"model {yes.model_prob*100:.1f}% · edge {yes.edge*100:+.1f}pp</span>  \n"
+            f"<span style='color:{ev_color};font-weight:700;'>"
+            f"EV {yes.ev_per_dollar*100:+.1f}¢/$1</span>"
+            + (f" · Kelly {yes.kelly_fraction*100:.1f}%" if yes.kelly_fraction > 0 else ""),
+            unsafe_allow_html=True,
+        )
+
+        # NO side
+        no = d.no_side
+        ev_color = "#0a7d2a" if no.ev_per_dollar > 0 else "#a8261f"
+        cols[3].markdown(
+            f"**NO** @ {no.ask_cents}¢ ({no.payout:.2f}x)  \n"
+            f"<span class='spy-meta'>book {no.implied_prob*100:.1f}% · "
+            f"model {no.model_prob*100:.1f}% · edge {no.edge*100:+.1f}pp</span>  \n"
+            f"<span style='color:{ev_color};font-weight:700;'>"
+            f"EV {no.ev_per_dollar*100:+.1f}¢/$1</span>"
+            + (f" · Kelly {no.kelly_fraction*100:.1f}%" if no.kelly_fraction > 0 else ""),
+            unsafe_allow_html=True,
+        )
+
+        st.caption(d.reasoning)
+        for w in d.warnings:
+            st.markdown(status_pill(w, "warn"), unsafe_allow_html=True)
+
+
+def _resolve_spot(symbol: str) -> tuple[SpotQuote | None, str | None]:
+    """Resolve spot using auto-fetch unless the user has overridden it."""
+    override_key = f"kalshi_spot_override_{symbol}"
+    override = st.session_state.get(override_key)
+    if override and override.get("price"):
+        sigma_override = override.get("sigma") or default_sigma_per_min(symbol)
+        return manual_quote(symbol, float(override["price"]), float(sigma_override)), None
+    try:
+        return _fetch_spot(symbol), None
+    except Exception as e:
+        return None, str(e)
+
+
+def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_ev: float) -> None:
+    st.subheader(f"{symbol}")
+    spot, err = _resolve_spot(symbol)
+    spot_col, override_col = st.columns([2.4, 1.6])
+    if spot:
+        age = max(0, int(time.time() - spot.ts))
+        spot_col.markdown(
+            f"**Spot ${spot.price:,.2f}**  "
+            f"<span class='spy-meta'>source: {spot.source} · {age}s old · "
+            f"σ {spot.sigma_per_min*100:.3f}%/min</span>",
+            unsafe_allow_html=True,
+        )
+    else:
+        spot_col.markdown(
+            status_pill(f"spot fetch failed: {err}", "err"),
+            unsafe_allow_html=True,
+        )
+
+    with override_col:
+        with st.expander("Manual spot override", expanded=not spot):
+            default_price = float(spot.price) if spot else 0.0
+            new_price = st.number_input(
+                f"{symbol} spot ($)",
+                min_value=0.0,
+                value=default_price,
+                step=0.01,
+                key=f"manual_price_{symbol}",
+                format="%.2f",
+            )
+            new_sigma = st.number_input(
+                f"σ per minute (%, optional)",
+                min_value=0.0,
+                value=float((spot.sigma_per_min if spot else default_sigma_per_min(symbol)) * 100),
+                step=0.001,
+                key=f"manual_sigma_{symbol}",
+                format="%.4f",
+            )
+            c1, c2 = st.columns(2)
+            if c1.button("Use override", key=f"use_override_{symbol}"):
+                st.session_state[f"kalshi_spot_override_{symbol}"] = {
+                    "price": new_price,
+                    "sigma": new_sigma / 100.0,
+                }
+                st.rerun()
+            if c2.button("Clear override", key=f"clear_override_{symbol}"):
+                st.session_state.pop(f"kalshi_spot_override_{symbol}", None)
+                st.rerun()
+
+    if not spot:
+        return
+
+    try:
+        markets_by_horizon = _fetch_markets(symbol, horizons)
+    except Exception as e:
+        st.error(f"Kalshi API error for {symbol}: {e}")
+        return
+
+    any_rendered = False
+    for horizon in horizons:
+        markets = [m for m in markets_by_horizon.get(horizon, []) if m.status == "active"]
+        if not markets:
+            continue
+        any_rendered = True
+        st.markdown(f"#### {HORIZON_LABELS[horizon]}")
+        decisions = score_event(markets, spot, min_edge=min_edge, min_ev=min_ev)
+
+        # Show actionable first, then top 5 passes for context.
+        actionable = [d for d in decisions if d.direction != "PASS"]
+        passes = [d for d in decisions if d.direction == "PASS"]
+        for d in actionable:
+            _render_decision_row(d)
+        if passes:
+            with st.expander(f"PASS markets ({len(passes)}) — book in line with model"):
+                for d in passes[:8]:
+                    _render_decision_row(d)
+
+    if not any_rendered:
+        st.info(f"No active {symbol} markets in the selected horizons right now.")
+
+
+def main() -> None:
+    setup_page("Kalshi Crypto", icon="🪙")
+    inject_global_css()
+
+    with st.sidebar:
+        st.subheader("Kalshi")
+        symbols = st.multiselect(
+            "Symbols",
+            SYMBOLS,
+            default=SYMBOLS,
+            help="Crypto series to pull from Kalshi.",
+        )
+        horizons = st.multiselect(
+            "Horizons",
+            HORIZONS,
+            default=HORIZONS,
+            format_func=lambda h: HORIZON_LABELS[h],
+        )
+        min_edge_pp = st.slider(
+            "Min edge (pp)",
+            0,
+            20,
+            4,
+            help="Minimum (model − book) probability gap, in percentage points, "
+            "before we recommend YES or NO. Smaller edges are dominated by "
+            "model error.",
+        )
+        min_ev_cents = st.slider(
+            "Min EV (¢ per $1)",
+            0,
+            20,
+            2,
+            help="Minimum expected return in cents per $1 staked. Acts as a "
+            "fee + slippage cushion.",
+        )
+        refresh_secs = st.select_slider(
+            "Auto-refresh",
+            options=[5, 10, 30, 60, 120, 300],
+            value=30,
+        )
+        st_autorefresh(interval=refresh_secs * 1000, key="kalshi_refresh")
+
+    st.caption(
+        "Hybrid: Kalshi orderbook auto-pulled, spot price auto-pulled "
+        "(Coinbase → Binance) with manual override. Direction is based on "
+        "edge vs. a driftless GBM model using realised 1-min vol over "
+        "time-to-close. **Advisory only — no orders are placed.**"
+    )
+    st.markdown(
+        f"{status_pill(f'auto-refresh {refresh_secs}s', 'info')} "
+        f"{status_pill(f'edge ≥ {min_edge_pp}pp · EV ≥ {min_ev_cents}¢', 'muted')} "
+        f"{status_pill(datetime.now(timezone.utc).strftime('%H:%M:%S UTC'), 'muted')}",
+        unsafe_allow_html=True,
+    )
+
+    if not symbols or not horizons:
+        st.warning("Pick at least one symbol and one horizon in the sidebar.")
+        return
+
+    for symbol in symbols:
+        _render_symbol(
+            symbol,
+            tuple(horizons),
+            min_edge=min_edge_pp / 100.0,
+            min_ev=min_ev_cents / 100.0,
+        )
+
+
+if __name__ == "__main__":
+    main()
