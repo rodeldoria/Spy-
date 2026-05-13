@@ -17,6 +17,11 @@ from streamlit_autorefresh import st_autorefresh
 
 from app._shared import setup_page
 from app._ui import inject_global_css
+from monte.signals.triangulation import (
+    DEFAULT_WEIGHTS,
+    PlayRecommendation,
+    recommend_play,
+)
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 TIMEOUT = 8.0
@@ -349,6 +354,92 @@ def _event_insight(event: dict, market_type: str) -> tuple[str, str, float]:
     return (headline, why, score)
 
 
+def _render_play_card(rec: PlayRecommendation) -> None:
+    """Render the 3-step triangulated play card under a Kalshi market."""
+    if rec is None:
+        return
+    action_color = {
+        "STRONG_BUY": "#16a34a",
+        "BUY": "#22c55e",
+        "WATCH": "#eab308",
+        "PASS": "#6b7280",
+        "AVOID": "#ef4444",
+    }.get(rec.action, "#6b7280")
+    conf_color = {"HIGH": "#16a34a", "MED": "#eab308", "LOW": "#94a3b8"}[rec.confidence_label]
+
+    bar_pct = int(round(rec.confidence * 100))
+
+    # Header — concrete action + dollar math
+    if rec.action == "PASS":
+        money_line = (
+            "<span style='color:#94a3b8;'>No bet — protect capital.</span>"
+        )
+    else:
+        money_line = (
+            f"Stake <strong>${rec.stake:.2f}</strong> "
+            f"({rec.contracts}× @ ${rec.contract_price:.2f}) "
+            f"→ if you win: <strong style='color:#22c55e;'>+${rec.net_win:.2f}</strong> "
+            f"({rec.roi_pct:+.1f}% ROI) · "
+            f"if you lose: <strong style='color:#ef4444;'>−${rec.max_loss:.2f}</strong>"
+        )
+
+    # 3-step confirmation grid — show each signal vote
+    vote_cells = []
+    for v in rec.votes:
+        if v.verdict == "BULL":
+            vc, icon = "#22c55e", "✅"
+        elif v.verdict == "BEAR":
+            vc, icon = "#ef4444", "🔻"
+        elif v.verdict == "NEUTRAL":
+            vc, icon = "#eab308", "⚖️"
+        else:
+            vc, icon = "#475569", "—"
+        vote_cells.append(
+            f"<div style='flex:1;min-width:140px;padding:8px 10px;background:#0b1220;"
+            f"border-radius:6px;border-left:3px solid {vc};margin:3px;'>"
+            f"<div style='font-size:0.72rem;color:#94a3b8;'>{icon} {v.name.upper()}</div>"
+            f"<div style='font-size:0.78rem;color:#e2e8f0;font-weight:600;'>{v.verdict}</div>"
+            f"<div style='font-size:0.72rem;color:#cbd5e1;margin-top:2px;'>{v.detail}</div>"
+            f"</div>"
+        )
+    votes_html = (
+        "<div style='display:flex;flex-wrap:wrap;margin:6px -3px;'>"
+        + "".join(vote_cells) + "</div>"
+    )
+
+    st.markdown(
+        f"<div style='padding:12px 14px;margin:6px 0 12px 0;background:#111827;"
+        f"border:1px solid #1f2937;border-left:4px solid {action_color};border-radius:8px;'>"
+        # Top row: action + confidence
+        f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+        f"<div><span style='background:{action_color};color:#fff;padding:3px 10px;"
+        f"border-radius:6px;font-weight:700;font-size:0.84rem;'>"
+        f"🎯 {rec.action.replace('_', ' ')}</span> "
+        f"<span style='color:#e2e8f0;margin-left:8px;font-size:0.92rem;font-weight:600;'>"
+        f"{rec.side}</span></div>"
+        f"<div style='color:{conf_color};font-weight:700;font-size:0.86rem;'>"
+        f"Confidence: {rec.confidence_label} ({rec.confidence*100:.0f}%)</div>"
+        f"</div>"
+        # Confidence progress bar
+        f"<div style='margin:8px 0 4px 0;background:#1e293b;border-radius:3px;height:5px;overflow:hidden;'>"
+        f"<div style='background:{conf_color};width:{bar_pct}%;height:5px;'></div>"
+        f"</div>"
+        # Money math
+        f"<div style='color:#cbd5e1;font-size:0.86rem;margin-top:6px;'>{money_line}</div>"
+        # 3-step confirmation votes
+        f"<div style='font-size:0.72rem;color:#94a3b8;margin-top:10px;'>"
+        f"<strong>Triangulation</strong> · {rec.n_bull} bull · {rec.n_bear} bear · {rec.n_neutral} neutral</div>"
+        f"{votes_html}"
+        # Why + horizon
+        f"<div style='color:#cbd5e1;font-size:0.8rem;margin-top:8px;'>"
+        f"<strong style='color:#e2e8f0;'>Why:</strong> {rec.why}</div>"
+        f"<div style='color:#cbd5e1;font-size:0.8rem;margin-top:4px;'>"
+        f"<strong style='color:#e2e8f0;'>Horizon:</strong> {rec.horizon_advice}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _insight_box(headline: str, why: str, score: float, close_lbl: str) -> str:
     score_color = "#22c55e" if score >= 60 else ("#f59e0b" if score >= 40 else "#6b7280")
     score_badge = (
@@ -394,6 +485,37 @@ def main() -> None:
             ["Crypto", "Equities", "Macro"],
             default=["Crypto", "Equities", "Macro"],
         )
+
+        st.divider()
+        st.subheader("🎯 Play sizing")
+        stake = st.number_input(
+            "Stake per play ($)", min_value=1.0, max_value=10000.0,
+            value=float(st.session_state.get("kalshi_stake", 10.0)),
+            step=5.0,
+            help="Dollar amount used for max-payout / max-loss math in the recommendation cards.",
+        )
+        st.session_state["kalshi_stake"] = stake
+
+        with st.expander("Signal weights (advanced)", expanded=False):
+            st.caption(
+                "Each signal votes BULL/BEAR/NEUTRAL. Increase a weight if "
+                "that signal has been right for you, decrease if not. "
+                "Reset to 1.0 = equal trust across the board."
+            )
+            w_crowd = st.slider("Crowd (Kalshi price)", 0.0, 2.0, DEFAULT_WEIGHTS["crowd"], 0.1)
+            w_pat = st.slider("Patterns (technical)", 0.0, 2.0, DEFAULT_WEIGHTS["patterns"], 0.1)
+            w_inf = st.slider("Influencers (X/Twitter)", 0.0, 2.0, DEFAULT_WEIGHTS["influencers"], 0.1)
+            w_sess = st.slider("Session (time-of-day calibration)", 0.0, 2.0, DEFAULT_WEIGHTS["session"], 0.1)
+            w_news = st.slider("News (Perplexity headlines)", 0.0, 2.0, DEFAULT_WEIGHTS["news"], 0.1)
+            enable_news = st.checkbox(
+                "Pull live news (uses Perplexity quota)", value=False,
+                help="Off by default — turning on issues one Perplexity call per crypto/equity event.",
+            )
+
+        weights = {
+            "crowd": w_crowd, "patterns": w_pat, "influencers": w_inf,
+            "session": w_sess, "news": w_news,
+        }
 
         st.divider()
         st.caption(
@@ -516,6 +638,21 @@ def main() -> None:
                         _insight_box(p["headline"], p["why"], p["score"], close_lbl),
                         unsafe_allow_html=True,
                     )
+
+                # 🎯 Triangulated play card — the concrete recommendation.
+                try:
+                    rec = recommend_play(
+                        event=detail or event,
+                        market_type=market_type,
+                        category=group["category"],
+                        series_label=series_label,
+                        stake=stake,
+                        weights=weights,
+                        enable_news=enable_news,
+                    )
+                    _render_play_card(rec)
+                except Exception as e:
+                    st.caption(f"🎯 Recommendation unavailable: {e}")
 
                 if detail and detail.get("markets"):
                     if market_type == "range":
