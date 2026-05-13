@@ -33,6 +33,7 @@ from app.kalshi import (
 )
 from app.kalshi.spot import SpotQuote, default_sigma_per_min, manual_quote
 from monte.learning import kalshi_calibration as kcal
+from monte.intel import decision_council as council
 
 SYMBOLS = ["BTC", "ETH", "SOL"]
 HORIZONS = ["15min", "hourly", "daily", "weekly"]
@@ -288,6 +289,177 @@ def _countdown(seconds: float) -> str:
     return f"{s // 86400}d {(s % 86400) // 3600:02d}h"
 
 
+def _council_inputs_for(d: Decision, calib_report) -> dict:
+    """Pack a Decision into the kwargs that decision_council.evaluate expects."""
+    chosen = d.chosen
+    if chosen is None:
+        return {}
+    # Calibration shift = how much the calibrator nudged the raw model prob.
+    cal_shift_pp = None
+    try:
+        if calib_report is not None and getattr(calib_report, "n_settled", 0) > 0:
+            cal_yes, _src = kcal.calibrate_prob(d.yes_side.model_prob)
+            cal_shift_pp = (cal_yes - d.yes_side.model_prob) * 100
+    except Exception:
+        pass
+
+    # Triangulation lookup — only meaningful for crypto markets.
+    tri_n_agree = tri_n_total = None
+    tri_match = None
+    try:
+        from monte.signals.triangulation import (
+            _crowd_vote, _patterns_vote, _influencers_vote, _session_vote,
+        )
+        # Map ticker symbol from the bet summary or title.
+        sym = None
+        upper = (d.title + " " + (d.bet_summary or "")).upper()
+        for s, full in (("BTC", "BTC-USD"), ("ETH", "ETH-USD"), ("SOL", "SOL-USD")):
+            if s in upper:
+                sym = full
+                break
+        if sym is not None:
+            votes = [
+                _crowd_vote(chosen.implied_prob),
+                _patterns_vote(sym),
+                _influencers_vote(sym),
+                _session_vote(),
+            ]
+            # Direction the model wants:
+            target = "BULL" if d.direction == "YES" else "BEAR"
+            tri_n_agree = sum(1 for v in votes if v.verdict == target)
+            n_against = sum(1 for v in votes if v.verdict in ("BULL", "BEAR")
+                            and v.verdict != target)
+            tri_n_total = tri_n_agree + n_against
+            tri_match = tri_n_agree >= n_against
+    except Exception:
+        pass
+
+    return dict(
+        direction=d.direction,
+        edge=chosen.edge,
+        ev_per_dollar=chosen.ev_per_dollar,
+        kelly_fraction=chosen.kelly_fraction,
+        confidence_pct=d.confidence_pct,
+        payout=chosen.payout,
+        ask_cents=chosen.ask_cents,
+        warnings=list(d.warnings or []),
+        cal_shift_pp=cal_shift_pp,
+        tri_n_agree=tri_n_agree,
+        tri_n_total=tri_n_total,
+        tri_direction_match=tri_match,
+        bet_summary=d.bet_summary,
+        market_ticker=d.market_ticker,
+    )
+
+
+def _render_council_card(d: Decision, verdict: council.CouncilVerdict) -> None:
+    band_color = {
+        "🟢": "#16a34a", "🟡": "#eab308", "🟠": "#f97316", "🔴": "#ef4444",
+    }[verdict.verdict_emoji]
+    bar_pct = int(round(verdict.trigger_score))
+
+    # Checkpoint cells — 8 mini tiles
+    cell_html = []
+    for c in verdict.checkpoints:
+        cc = "#22c55e" if c.passed else "#94a3b8"
+        cell_html.append(
+            f"<div style='flex:1;min-width:135px;padding:7px 9px;background:#0b1220;"
+            f"border-radius:6px;border-left:3px solid {cc};margin:3px;'>"
+            f"<div style='font-size:0.7rem;color:#94a3b8;'>"
+            f"{'✅' if c.passed else '◻'} {c.name.upper()}</div>"
+            f"<div style='font-size:0.78rem;color:#e2e8f0;font-weight:600;'>"
+            f"{c.score:.1f}/12.5</div>"
+            f"<div style='font-size:0.68rem;color:#cbd5e1;margin-top:2px;line-height:1.2;'>"
+            f"{c.detail}</div></div>"
+        )
+    cells = "<div style='display:flex;flex-wrap:wrap;margin:4px -3px;'>" + "".join(cell_html) + "</div>"
+
+    ai_block = ""
+    if verdict.ai_score is not None and verdict.ai_summary:
+        ai_block = (
+            f"<div style='margin-top:8px;padding:8px 10px;background:#0b1220;"
+            f"border-left:3px solid #8b5cf6;border-radius:6px;'>"
+            f"<div style='font-size:0.72rem;color:#a78bfa;font-weight:700;'>"
+            f"🤖 CLAUDE SECOND OPINION · {verdict.ai_score:.0f}/100</div>"
+            f"<div style='font-size:0.8rem;color:#e2e8f0;margin-top:3px;'>"
+            f"{verdict.ai_summary}</div></div>"
+        )
+    elif verdict.ai_error and verdict.ai_score is None:
+        ai_block = (
+            f"<div style='margin-top:6px;font-size:0.72rem;color:#94a3b8;'>"
+            f"🤖 AI second opinion skipped: {verdict.ai_error}</div>"
+        )
+
+    playbook_html = "".join(
+        f"<div style='font-size:0.82rem;color:#e2e8f0;margin:2px 0;'>{step}</div>"
+        for step in verdict.playbook
+    )
+
+    title = f"{d.bet_summary or d.title}" if d.bet_summary else d.title
+    st.markdown(
+        f"<div style='padding:12px 14px;margin:6px 0;background:#111827;"
+        f"border:1px solid #1f2937;border-left:5px solid {band_color};border-radius:8px;'>"
+        f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+        f"<div style='color:#94a3b8;font-size:0.78rem;'>{title}</div>"
+        f"<div style='color:{band_color};font-weight:700;font-size:0.9rem;'>"
+        f"{verdict.verdict_emoji} {verdict.verdict_label} · {verdict.trigger_score:.0f}/100</div>"
+        f"</div>"
+        f"<div style='margin:6px 0 4px 0;background:#1e293b;border-radius:3px;height:6px;overflow:hidden;'>"
+        f"<div style='background:{band_color};width:{bar_pct}%;height:6px;'></div>"
+        f"</div>"
+        f"<div style='color:#cbd5e1;font-size:0.86rem;margin-top:6px;'>{verdict.headline}</div>"
+        f"<div style='font-size:0.7rem;color:#94a3b8;margin-top:8px;'>"
+        f"<strong>8-framework scorecard</strong> · {verdict.passed_count}/8 checkpoints cleared</div>"
+        f"{cells}"
+        f"<div style='font-size:0.72rem;color:#94a3b8;margin-top:8px;'><strong>📋 3-step playbook</strong></div>"
+        f"{playbook_html}"
+        f"{ai_block}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_council_panel(
+    decisions: list[Decision], *, symbol: str, calib_report,
+    bankroll: float, enable_ai: bool,
+) -> None:
+    """Run the AI Decision Council on the top actionable opportunities and
+    show a one-glance pull-the-trigger card per market."""
+    verdicts = []
+    for d in decisions:
+        if d.direction == "PASS":
+            continue
+        kw = _council_inputs_for(d, calib_report)
+        if not kw:
+            continue
+        try:
+            v = council.evaluate(**kw, enable_ai=enable_ai, bankroll=bankroll)
+            verdicts.append((d, v))
+        except Exception:
+            continue
+    if not verdicts:
+        return
+
+    verdicts.sort(key=lambda x: -x[1].trigger_score)
+    top = verdicts[0]
+    st.markdown(
+        f"<div style='margin:10px 0 6px 0;'>"
+        f"<span style='font-size:1.05rem;font-weight:700;color:#e2e8f0;'>"
+        f"🚦 AI Decision Council — {symbol}</span>"
+        f"<span style='color:#94a3b8;font-size:0.78rem;margin-left:8px;'>"
+        f"Top pick: <strong style='color:#e2e8f0;'>{top[1].verdict_emoji} "
+        f"{top[1].verdict_label}</strong> · {top[1].trigger_score:.0f}/100</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    with st.expander(
+        f"Show full council scorecards ({len(verdicts)} opportunities)",
+        expanded=(top[1].trigger_score >= 60),
+    ):
+        for d, v in verdicts[:5]:
+            _render_council_card(d, v)
+
+
 def _render_decision_row(d: Decision, calib_report=None, stake: float = 10.0) -> None:
     with st.container(border=True):
         cols = st.columns([3.0, 1.4, 1.4, 1.6])
@@ -335,17 +507,20 @@ def _render_decision_row(d: Decision, calib_report=None, stake: float = 10.0) ->
         yes = d.yes_side
         ev_color = "#0a7d2a" if yes.ev_per_dollar > 0 else "#a8261f"
         yes_profit = stake * (yes.payout - 1) if yes.payout > 1 else 0.0
+        # Escape '$' as '\$' so Streamlit's markdown doesn't treat the
+        # dollar amounts as inline LaTeX (which corrupts the HTML between
+        # the dollar signs).
         cols[2].markdown(
             f"**YES** @ {yes.ask_cents}¢ ({yes.payout:.2f}x)  \n"
             f"<span class='spy-meta'>book {yes.implied_prob*100:.1f}% · "
             f"model {yes.model_prob*100:.1f}% · edge {yes.edge*100:+.1f}pp</span>  \n"
             f"<span style='font-size:0.86rem;'>"
-            f"💵 Bet <strong>${stake:,.0f}</strong> → "
-            f"<span style='color:#0a7d2a;font-weight:700;'>+${yes_profit:,.2f}</span> if YES wins · "
-            f"<span style='color:#a8261f;font-weight:700;'>-${stake:,.2f}</span> if NO"
+            f"💵 Bet <strong>\\${stake:,.0f}</strong> → "
+            f"<span style='color:#0a7d2a;font-weight:700;'>+\\${yes_profit:,.2f}</span> if YES wins · "
+            f"<span style='color:#a8261f;font-weight:700;'>-\\${stake:,.2f}</span> if NO"
             f"</span>  \n"
             f"<span style='color:{ev_color};font-weight:700;'>"
-            f"EV {yes.ev_per_dollar*100:+.1f}¢/$1</span>"
+            f"EV {yes.ev_per_dollar*100:+.1f}¢/\\$1</span>"
             + (f" · Kelly {yes.kelly_fraction*100:.1f}%" if yes.kelly_fraction > 0 else ""),
             unsafe_allow_html=True,
         )
@@ -359,12 +534,12 @@ def _render_decision_row(d: Decision, calib_report=None, stake: float = 10.0) ->
             f"<span class='spy-meta'>book {no.implied_prob*100:.1f}% · "
             f"model {no.model_prob*100:.1f}% · edge {no.edge*100:+.1f}pp</span>  \n"
             f"<span style='font-size:0.86rem;'>"
-            f"💵 Bet <strong>${stake:,.0f}</strong> → "
-            f"<span style='color:#0a7d2a;font-weight:700;'>+${no_profit:,.2f}</span> if NO wins · "
-            f"<span style='color:#a8261f;font-weight:700;'>-${stake:,.2f}</span> if YES"
+            f"💵 Bet <strong>\\${stake:,.0f}</strong> → "
+            f"<span style='color:#0a7d2a;font-weight:700;'>+\\${no_profit:,.2f}</span> if NO wins · "
+            f"<span style='color:#a8261f;font-weight:700;'>-\\${stake:,.2f}</span> if YES"
             f"</span>  \n"
             f"<span style='color:{ev_color};font-weight:700;'>"
-            f"EV {no.ev_per_dollar*100:+.1f}¢/$1</span>"
+            f"EV {no.ev_per_dollar*100:+.1f}¢/\\$1</span>"
             + (f" · Kelly {no.kelly_fraction*100:.1f}%" if no.kelly_fraction > 0 else ""),
             unsafe_allow_html=True,
         )
@@ -637,7 +812,7 @@ def _render_calibration_panel() -> None:
             st.rerun()
 
 
-def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_ev: float, sort_mode: str, stake: float = 10.0) -> None:
+def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_ev: float, sort_mode: str, stake: float = 10.0, bankroll: float = 1000.0, enable_ai_coach: bool = False) -> None:
     st.subheader(f"{symbol}")
     spot, err = _resolve_spot(symbol)
     spot_col, override_col = st.columns([2.4, 1.6])
@@ -757,6 +932,21 @@ def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_
         passes = _sort_decisions(
             [d for d in decisions if d.direction == "PASS"], sort_mode
         )
+        # 🚦 AI Decision Council — top-of-list "should I pull the trigger?"
+        # verdict for the actionable opportunities, scored across 8 classic
+        # frameworks (Thorp, Kelly, Tetlock, Druckenmiller, Kahneman, …).
+        if actionable:
+            try:
+                _render_council_panel(
+                    actionable[:5],
+                    symbol=symbol,
+                    calib_report=calib,
+                    bankroll=bankroll,
+                    enable_ai=enable_ai_coach,
+                )
+            except Exception as e:
+                st.caption(f"🚦 Council unavailable: {e}")
+
         for d in actionable:
             _render_decision_row(d, calib_report=calib, stake=stake)
         if passes:
@@ -810,6 +1000,21 @@ def main() -> None:
             value=10.0,
             step=1.0,
             help="Used to show concrete dollar payouts on each market row.",
+        )
+        bankroll = st.number_input(
+            "Total bankroll ($)",
+            min_value=10.0,
+            max_value=1_000_000.0,
+            value=float(st.session_state.get("kalshi_bankroll", 1000.0)),
+            step=50.0,
+            help="Used by the AI Decision Council for Kelly-sized recommendations.",
+        )
+        st.session_state["kalshi_bankroll"] = bankroll
+        enable_ai_coach = st.checkbox(
+            "🤖 Enable AI second opinion (Claude)",
+            value=False,
+            help="When on, top-scoring trades get a second-opinion verdict from Claude. "
+            "Off by default — uses Anthropic API quota.",
         )
         sort_mode = st.selectbox(
             "Sort markets by",
@@ -869,6 +1074,8 @@ def main() -> None:
             min_ev=min_ev_cents / 100.0,
             sort_mode=sort_mode,
             stake=float(stake),
+            bankroll=float(bankroll),
+            enable_ai_coach=bool(enable_ai_coach),
         )
 
 
