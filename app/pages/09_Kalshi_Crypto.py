@@ -119,6 +119,121 @@ def _direction_pill(direction: str, confidence: float) -> str:
     )
 
 
+def _render_influencer_panel(symbol: str) -> None:
+    """Show what the loud-voice crypto accounts are saying right now.
+
+    Uses Perplexity to scan the last 24h of commentary from the curated
+    INFLUENCERS list. Cached 30m server-side so this is cheap on rerun.
+    """
+    try:
+        from monte.intel.influencers import fetch_influencer_pulse
+        pulse = fetch_influencer_pulse(symbol)
+    except Exception as e:
+        st.caption(f"🐦 Influencer pulse unavailable: {e}")
+        return
+    if not pulse.configured:
+        st.caption(f"🐦 Influencer pulse: {pulse.summary}")
+        return
+    if pulse.error:
+        st.caption(f"🐦 Influencer pulse unavailable: {pulse.error[:80]}")
+        return
+    if pulse.overall_sentiment == "quiet" and not pulse.voices:
+        return
+
+    color = {
+        "bullish": "#0a7d2a", "bearish": "#a8261f",
+        "mixed": "#b97500", "quiet": "#6b7280",
+    }[pulse.overall_sentiment]
+    with st.expander(
+        f"{pulse.emoji} Influencer pulse on {symbol} · "
+        f"{pulse.overall_sentiment.upper()} (bias {pulse.net_bias:+.2f}) · "
+        f"{len(pulse.voices)} voices",
+        expanded=False,
+    ):
+        if pulse.summary:
+            st.markdown(
+                f"<div style='padding:6px 10px;border-left:3px solid {color};"
+                f"margin-bottom:8px;background:rgba(107,114,128,0.06);'>"
+                f"<strong>Narrative:</strong> {pulse.summary}</div>",
+                unsafe_allow_html=True,
+            )
+        for v in pulse.voices:
+            v_color = {"bullish": "#0a7d2a", "bearish": "#a8261f", "neutral": "#6b7280"}[v.sentiment]
+            impact_badge = {
+                "high": "🔥 HIGH",
+                "med": "⚡ med",
+                "low": "· low",
+            }[v.impact]
+            st.markdown(
+                f"<div style='margin:4px 0;font-size:0.86rem;'>"
+                f"<strong style='color:{v_color};'>{v.handle}</strong> "
+                f"<span style='color:#888;font-size:0.78rem;'>"
+                f"({v.sentiment} · {impact_badge})</span><br/>"
+                f"<span style='color:#444;'>“{v.quote}”</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        st.caption(
+            f"Pulled via Perplexity · cached 30m · last fetched "
+            f"{int((time.time() - pulse.fetched_at)/60)}m ago"
+        )
+
+
+def _render_temporal_panel() -> None:
+    """When does the model win, lose, or struggle?
+
+    Buckets every settled outcome by PST session, hour-of-day, and
+    day-of-week so the user can see patterns like 'Friday markets are
+    harder' or 'US Open is our best window'.
+    """
+    try:
+        from monte.learning.temporal_report import build_report, session_table, dow_table
+        rep = build_report()
+    except Exception as e:
+        st.caption(f"📊 Temporal report unavailable: {e}")
+        return
+    if rep.n_kalshi == 0 and rep.n_forecast == 0:
+        return
+
+    headline = f"📊 Temporal performance · {rep.n_kalshi} Kalshi outcomes · {rep.n_forecast} forecast outcomes"
+    if rep.best_session and rep.worst_session and rep.best_session != rep.worst_session:
+        headline += f" · 🏆 best: {rep.best_session} · ⚠️ worst: {rep.worst_session}"
+
+    with st.expander(headline, expanded=False):
+        st.markdown(
+            "**By PST session** — the times of day when the model is sharp vs. when it struggles. "
+            "*Hit-rate* = % of YES/NO recommendations that won. "
+            "*MAE* = mean absolute forecast error %."
+        )
+        import pandas as pd
+        st.dataframe(pd.DataFrame(session_table(rep)), hide_index=True, width="stretch")
+
+        st.markdown("**By day of week (PST)** — is Friday actually slow?")
+        st.dataframe(pd.DataFrame(dow_table(rep)), hide_index=True, width="stretch")
+
+        if rep.by_hour_pst:
+            st.markdown("**By hour of day (PST)** — peak windows.")
+            hours = sorted(rep.by_hour_pst.keys())
+            rows = []
+            for h in hours:
+                b = rep.by_hour_pst[h]
+                rows.append({
+                    "Hour PST": f"{h:02d}:00",
+                    "n": b.n,
+                    "Kalshi hit-rate": f"{b.hit_rate*100:.0f}%" if b.hit_rate is not None else "—",
+                    "Avg edge": f"{b.avg_edge_pp:.1f}pp" if b.avg_edge_pp is not None else "—",
+                    "Forecast MAE": f"{b.avg_err_pct:.2f}%" if b.avg_err_pct is not None else "—",
+                })
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+
+        st.caption(
+            "Built from your own settlement history. Numbers grow more "
+            "reliable as more markets settle. PST sessions: Pre-market "
+            "(4-6:30am), US Open (6:30-9:30), Midday Drag (9:30-noon), "
+            "Afternoon (noon-1pm), Close (1-3:30pm), After Hours (3:30-8pm), Asia (overnight)."
+        )
+
+
 def _kalshi_help() -> None:
     with st.expander("ℹ️ How to read these signals (EV · Kelly · Conviction)"):
         st.markdown(
@@ -741,6 +856,9 @@ def main() -> None:
     _kalshi_help()
     _maybe_settle()
     _render_calibration_panel()
+    _render_temporal_panel()
+    for s in symbols:
+        _render_influencer_panel(s)
     _inject_live_countdown_js()
 
     for symbol in symbols:

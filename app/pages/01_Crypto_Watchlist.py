@@ -139,6 +139,12 @@ def _render_forecast_grid(close, spot: float, timeframe: str, sym: str) -> None:
         "<div class='spy-meta' style='margin:8px 0 4px 0;'>"
         f"📈 <strong>Forecast grid</strong> — projected price &amp; 1σ band at each horizon "
         "<span style='color:#888;'>(based on recent volatility — for Kalshi/options sizing, not a guarantee)</span>"
+        "<br/><span style='color:#888;font-size:0.78rem;'>"
+        "Legend: <strong>▲</strong> projected up · <strong>▼</strong> projected down · "
+        "<strong>→</strong> projected flat. The bottom row "
+        "<code>$lo → $hi</code> is the 1σ band — about 68% of the time the "
+        "actual price should land inside this range."
+        "</span>"
         "</div>",
         unsafe_allow_html=True,
     )
