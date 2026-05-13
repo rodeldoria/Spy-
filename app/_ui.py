@@ -138,7 +138,13 @@ def inject_global_css() -> None:
         }
         .spy-plain ul { margin: 4px 0 0 0; padding-left: 18px; }
         .spy-plain li { margin: 2px 0; font-size: 0.9rem; }
-        /* ── Alert card (Live Signals + HOLD rows) ── */
+        /* ── Alert card / factor grid / pattern chips ──
+           Gated to mobile (≤640px) per task scope: desktop layout must
+           remain identical to the previous (unstyled) presentation.
+           The forecast probability bar (.spy-prob-bar) is intentionally
+           NOT gated because the red-on-dark contrast bug exists on
+           every viewport. */
+        @media (max-width: 640px) {
         .spy-alert-card {
             border: 1px solid rgba(127,127,127,0.22);
             border-radius: 12px;
@@ -266,6 +272,7 @@ def inject_global_css() -> None:
             font-weight: 600;
             cursor: help;
         }
+        }  /* end @media (max-width: 640px) for alert/factor/pattern */
         /* ── Forecast probability bar (Kalshi range buckets) ── */
         .spy-prob-bar {
             padding: 9px 12px;
