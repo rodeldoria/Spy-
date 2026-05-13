@@ -15,6 +15,7 @@ import requests
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
+from app._premortem_panel import render_premortem_panel
 from app._shared import setup_page
 from app._ui import inject_global_css
 from monte.signals.triangulation import (
@@ -530,6 +531,21 @@ def main() -> None:
     st.caption(
         f"Live crowd-sourced event probabilities · refreshes every {refresh_secs}s · "
         f"last update {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}"
+    )
+
+    # Compact premortem panel — apply Klein's "this trade already lost, why?"
+    # drill to any prediction-market play you're considering. Defaults to the
+    # intraday lens since most Kalshi plays close inside a day.
+    render_premortem_panel(
+        key_prefix="kalshi-markets-premortem",
+        default_horizon="intraday",
+        compact=True,
+        expanded=False,
+        intro=(
+            "Premortem a Kalshi play before you click YES/NO. Paste the market, "
+            "your side, the edge you think you have, and the stop/exit — Claude "
+            "returns the failure modes most likely to ruin it before close."
+        ),
     )
 
     groups = [g for g in FINANCIAL_SERIES if g["category"] in categories]
