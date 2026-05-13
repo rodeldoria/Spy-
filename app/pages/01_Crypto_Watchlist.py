@@ -132,6 +132,8 @@ def _plain_english_guide(
     macd_hist: float,
     regime_value: str,
     alert,
+    bundle=None,
+    fc_report=None,
 ) -> None:
     """Friendly 'should I buy?' explainer in everyday language."""
     act = str(action).upper()
@@ -576,6 +578,23 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
         adx=regime.adx,
     )
 
+    try:
+        bundle = detect_patterns(close, spot)
+    except Exception:
+        bundle = None
+
+    try:
+        projections = forecast_horizons(close, spot)
+    except Exception:
+        projections = []
+    try:
+        forecast_calibration.settle_pending(sym, close)
+        if projections:
+            forecast_calibration.snapshot_projections(sym, projections)
+        fc_report = forecast_calibration.report(sym)
+    except Exception:
+        fc_report = None
+
     _plain_english_guide(
         action=alert.action.value,
         confidence=float(alert.confidence or 0),
@@ -584,6 +603,8 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
         macd_hist=macd_hist,
         regime_value=regime.regime.value,
         alert=alert,
+        bundle=bundle,
+        fc_report=fc_report,
     )
 
     chart_df = df.tail(400)

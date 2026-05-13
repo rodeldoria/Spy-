@@ -651,8 +651,8 @@ def _render_decision_row(
     min_ev: float = 0.02,
     enable_ai_opinion: bool = False,
     ai_cache: dict | None = None,
+    bankroll: float = 1000.0,
 ) -> None:
->>>>>>> 3719c3e7da6d00340abfcfbcc8736cfed54971c3
     with st.container(border=True):
         cols = st.columns([3.0, 1.4, 1.4, 1.6])
 
@@ -1076,9 +1076,6 @@ def _render_calibration_panel() -> None:
             st.rerun()
 
 
-<<<<<<< HEAD
-def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_ev: float, sort_mode: str, stake: float = 10.0, bankroll: float = 1000.0, enable_ai_coach: bool = False) -> None:
-=======
 def _render_symbol(
     symbol: str,
     horizons: tuple[str, ...],
@@ -1086,11 +1083,12 @@ def _render_symbol(
     min_ev: float,
     sort_mode: str,
     stake: float = 10.0,
+    bankroll: float = 1000.0,
     *,
+    enable_ai_coach: bool = False,
     enable_ai_opinion: bool = False,
     ai_cache: dict | None = None,
 ) -> None:
->>>>>>> 3719c3e7da6d00340abfcfbcc8736cfed54971c3
     st.subheader(f"{symbol}")
     spot, err = _resolve_spot(symbol)
     spot_col, override_col = st.columns([2.4, 1.6])
@@ -1234,6 +1232,7 @@ def _render_symbol(
                 min_ev=min_ev,
                 enable_ai_opinion=enable_ai_opinion,
                 ai_cache=ai_cache,
+                bankroll=bankroll,
             )
         if passes:
             with st.expander(f"PASS markets ({len(passes)}) — book in line with model"):
@@ -1246,6 +1245,7 @@ def _render_symbol(
                         min_ev=min_ev,
                         enable_ai_opinion=False,  # never spend on PASS rows
                         ai_cache=ai_cache,
+                        bankroll=bankroll,
                     )
 
     if not any_rendered:
@@ -1382,13 +1382,10 @@ def main() -> None:
             min_ev=min_ev_cents / 100.0,
             sort_mode=sort_mode,
             stake=float(stake),
-<<<<<<< HEAD
             bankroll=float(bankroll),
             enable_ai_coach=bool(enable_ai_coach),
-=======
             enable_ai_opinion=enable_ai_opinion,
             ai_cache=ai_cache,
->>>>>>> 3719c3e7da6d00340abfcfbcc8736cfed54971c3
         )
 
 
