@@ -47,7 +47,10 @@ class Settings:
             "pattern": 0.15,
         }
 
-        self.anthropic_configured: bool = bool(os.environ.get("ANTHROPIC_API_KEY"))
+        self.anthropic_configured: bool = bool(
+            os.environ.get("ANTHROPIC_API_KEY")
+            or os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY")
+        )
         self.perplexity_configured: bool = bool(os.environ.get("PERPLEXITY_API_KEY"))
         self.alpaca_configured: bool = bool(
             os.environ.get("ALPACA_API_KEY") and os.environ.get("ALPACA_SECRET_KEY")
