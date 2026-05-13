@@ -82,12 +82,23 @@ def main() -> None:
     setup_page("Live Signals", icon="🎯")
     inject_global_css()
 
-    st_autorefresh(interval=30_000, key="signals_refresh")
     crypto, stocks = sidebar_watchlists()
 
     with st.sidebar:
         st.subheader("Scan")
-        timeframe = st.selectbox("Timeframe", ["1h", "15m", "5m", "1d"], index=0)
+        timeframe = st.selectbox(
+            "Timeframe",
+            ["1m", "5m", "15m", "30m", "1h", "1d"],
+            index=2,  # default 15m — fastest yfinance offers reliably
+            help="1m = ultra-short. yfinance caps 1m history at 7 days.",
+        )
+        refresh_secs = st.select_slider(
+            "Auto-refresh",
+            options=[5, 15, 30, 60, 120],
+            value=30,
+            help="How often the page polls for new alerts.",
+        )
+        st_autorefresh(interval=refresh_secs * 1000, key="signals_refresh")
         min_conf = st.slider(
             "Min confidence",
             0,
@@ -102,11 +113,16 @@ def main() -> None:
             help="Even when no pattern fires, show the symbol so you can "
             "see data is flowing.",
         )
+        show_errors = st.checkbox(
+            "Show fetch errors",
+            value=True,
+            help="Surface rows where the data provider (yfinance) failed.",
+        )
 
     st.markdown(
-        f"{status_pill('auto-refresh 30s', 'info')} "
+        f"{status_pill(f'auto-refresh {refresh_secs}s', 'info')} "
         f"{status_pill(f'watching {len(crypto) + len(stocks)} symbols', 'muted')} "
-        f"{status_pill(f'min conf {min_conf}%', 'muted')}",
+        f"{status_pill(f'{timeframe} · min conf {min_conf}%', 'muted')}",
         unsafe_allow_html=True,
     )
     st.caption(
@@ -143,9 +159,17 @@ def main() -> None:
         # it's a motivator, not a critical path.
         pass
 
-    if run_inline:
+    # Auto-trigger a scan on first load when nothing has been logged yet,
+    # so the user sees data immediately instead of an empty-state message.
+    existing = tail_alerts(limit=1)
+    auto_scan = (not existing) and not st.session_state.get("auto_scan_done")
+    if auto_scan:
+        st.session_state["auto_scan_done"] = True
+
+    if run_inline or auto_scan:
         symbols = crypto + stocks
-        with loading(f"Scanning {len(symbols)} symbols on {timeframe}…"):
+        label = "Initialising — running first scan…" if auto_scan else f"Scanning {len(symbols)} symbols on {timeframe}…"
+        with loading(label):
             t0 = time.time()
             try:
                 fresh = scan_once(
@@ -162,10 +186,11 @@ def main() -> None:
 
     rows = tail_alerts(limit=200)
     if not rows:
-        st.info(
-            "No alerts logged yet. Click **Run scan now** in the sidebar, or "
-            "start the scanner via `python -m monte.alerts.engine` "
-            "(background worker)."
+        st.warning(
+            "**No data yet.** The provider (yfinance) returned nothing on this "
+            "scan — usually a transient rate-limit on Replit. Click **Run scan "
+            "now** in the sidebar to retry, or switch timeframe to 15m / 1h. "
+            "Background worker: `python -m monte.alerts.engine`."
         )
         return
 
