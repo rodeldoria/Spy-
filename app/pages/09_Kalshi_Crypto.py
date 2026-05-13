@@ -162,7 +162,7 @@ def _countdown(seconds: float) -> str:
     return f"{s // 86400}d {(s % 86400) // 3600:02d}h"
 
 
-def _render_decision_row(d: Decision, calib_report=None) -> None:
+def _render_decision_row(d: Decision, calib_report=None, stake: float = 10.0) -> None:
     with st.container(border=True):
         cols = st.columns([3.0, 1.4, 1.4, 1.6])
 
@@ -180,11 +180,20 @@ def _render_decision_row(d: Decision, calib_report=None) -> None:
                 f"</span>"
             )
 
+        # Determine which crypto symbol this market is for, so the live JS
+        # spot ticker can subscribe to the right Coinbase channel.
+        sym_guess = "BTC"
+        for s in ("ETH", "SOL", "BTC"):
+            if s in d.title.upper() or s in (d.bet_summary or "").upper():
+                sym_guess = s
+                break
+
         cols[0].markdown(
             f"**{d.title}**  \n"
             f"<span class='spy-meta'>Closes in <span class='kalshi-countdown' "
             f"data-close-ts='{d.close_time:.0f}'>{_countdown(d.horizon_seconds)}</span> · "
-            f"Spot <span class='kalshi-spot-flash'>${d.spot_price:,.2f}</span> "
+            f"Spot <span class='kalshi-spot-live' data-symbol='{sym_guess}'>"
+            f"${d.spot_price:,.2f}</span> "
             f"({d.spot_source}) · σ {d.sigma_per_min*100:.3f}%/min</span>  \n"
             + (f"<span style='color:#2563eb;font-weight:600;font-size:0.85rem;'>"
                f"📌 Bet: {d.bet_summary}</span>" if d.bet_summary else "")
@@ -196,26 +205,38 @@ def _render_decision_row(d: Decision, calib_report=None) -> None:
             unsafe_allow_html=True,
         )
 
-        # YES side
+        # YES side — concrete dollar payout calc
         yes = d.yes_side
         ev_color = "#0a7d2a" if yes.ev_per_dollar > 0 else "#a8261f"
+        yes_profit = stake * (yes.payout - 1) if yes.payout > 1 else 0.0
         cols[2].markdown(
             f"**YES** @ {yes.ask_cents}¢ ({yes.payout:.2f}x)  \n"
             f"<span class='spy-meta'>book {yes.implied_prob*100:.1f}% · "
             f"model {yes.model_prob*100:.1f}% · edge {yes.edge*100:+.1f}pp</span>  \n"
+            f"<span style='font-size:0.86rem;'>"
+            f"💵 Bet <strong>${stake:,.0f}</strong> → "
+            f"<span style='color:#0a7d2a;font-weight:700;'>+${yes_profit:,.2f}</span> if YES wins · "
+            f"<span style='color:#a8261f;font-weight:700;'>-${stake:,.2f}</span> if NO"
+            f"</span>  \n"
             f"<span style='color:{ev_color};font-weight:700;'>"
             f"EV {yes.ev_per_dollar*100:+.1f}¢/$1</span>"
             + (f" · Kelly {yes.kelly_fraction*100:.1f}%" if yes.kelly_fraction > 0 else ""),
             unsafe_allow_html=True,
         )
 
-        # NO side
+        # NO side — concrete dollar payout calc
         no = d.no_side
         ev_color = "#0a7d2a" if no.ev_per_dollar > 0 else "#a8261f"
+        no_profit = stake * (no.payout - 1) if no.payout > 1 else 0.0
         cols[3].markdown(
             f"**NO** @ {no.ask_cents}¢ ({no.payout:.2f}x)  \n"
             f"<span class='spy-meta'>book {no.implied_prob*100:.1f}% · "
             f"model {no.model_prob*100:.1f}% · edge {no.edge*100:+.1f}pp</span>  \n"
+            f"<span style='font-size:0.86rem;'>"
+            f"💵 Bet <strong>${stake:,.0f}</strong> → "
+            f"<span style='color:#0a7d2a;font-weight:700;'>+${no_profit:,.2f}</span> if NO wins · "
+            f"<span style='color:#a8261f;font-weight:700;'>-${stake:,.2f}</span> if YES"
+            f"</span>  \n"
             f"<span style='color:{ev_color};font-weight:700;'>"
             f"EV {no.ev_per_dollar*100:+.1f}¢/$1</span>"
             + (f" · Kelly {no.kelly_fraction*100:.1f}%" if no.kelly_fraction > 0 else ""),
@@ -260,30 +281,27 @@ def _sort_decisions(decisions: list[Decision], sort_mode: str) -> list[Decision]
 
 
 def _inject_live_countdown_js() -> None:
-    """Tick every countdown span and pulse spot prices in the user's browser.
+    """Tick countdowns + stream live spot prices via Coinbase WebSocket.
 
-    Streamlit only re-renders on auto-refresh, but countdown seconds need to
-    update every frame to feel "alive". This script runs in a 0-height iframe
-    component and reaches into the parent document to update text from each
-    `.kalshi-countdown` span's `data-close-ts` attribute. Spot-price spans
-    get a brief flash class on each Streamlit refresh so the eye catches the
-    change like a Robinhood ticker.
+    Two independent live loops, both running entirely in the user's browser:
+
+    1. Countdown ticker (250ms) — decrements every `.kalshi-countdown` span
+       from its `data-close-ts` epoch. Colours amber under 5min, red under 1min.
+
+    2. Coinbase WebSocket — opens a single connection to
+       `wss://ws-feed.exchange.coinbase.com`, subscribes to the `ticker`
+       channel for every symbol present on the page (BTC-USD / ETH-USD /
+       SOL-USD), and updates the text of every matching `.kalshi-spot-live`
+       span on each tick. No flash, no pulse — silent text updates like a
+       broker quote.
+
+    Coinbase's public ticker feed is free, no auth, ~5-15 ticks/sec for
+    BTC-USD. If the feed disconnects, we auto-reconnect with backoff.
     """
     import streamlit.components.v1 as components
 
     components.html(
         """
-        <style>
-          @keyframes kalshi-flash {
-            0%   { background: rgba(34,197,94,0.45); }
-            100% { background: transparent; }
-          }
-          .kalshi-spot-flash-pulse {
-            animation: kalshi-flash 0.9s ease-out;
-            border-radius: 4px;
-            padding: 0 3px;
-          }
-        </style>
         <script>
         (function() {
           const root = window.parent.document;
@@ -314,44 +332,82 @@ def _inject_live_countdown_js() -> None:
               const ts = parseFloat(el.dataset.closeTs);
               if (!ts) return;
               const remaining = ts - now;
-              const txt = fmt(remaining);
-              if (el.textContent !== txt) {
-                el.textContent = txt;
-                if (remaining > 0 && remaining < 60) {
-                  el.style.color = "#dc2626";
-                  el.style.fontWeight = "700";
-                } else if (remaining > 0 && remaining < 300) {
-                  el.style.color = "#f59e0b";
-                  el.style.fontWeight = "600";
+              el.textContent = fmt(remaining);
+              if (remaining > 0 && remaining < 60) {
+                el.style.color = "#dc2626";
+                el.style.fontWeight = "700";
+              } else if (remaining > 0 && remaining < 300) {
+                el.style.color = "#f59e0b";
+                el.style.fontWeight = "600";
+              } else {
+                el.style.color = "";
+                el.style.fontWeight = "";
+              }
+            });
+          }
+
+          // --- Coinbase WebSocket live spot ticker -----------------------
+          function connectCoinbase() {
+            const symbolsOnPage = new Set();
+            root.querySelectorAll(".kalshi-spot-live").forEach(function(el) {
+              const s = (el.dataset.symbol || "").toUpperCase();
+              if (s) symbolsOnPage.add(s);
+            });
+            if (symbolsOnPage.size === 0) return null;
+
+            const productIds = Array.from(symbolsOnPage).map(s => s + "-USD");
+            const ws = new WebSocket("wss://ws-feed.exchange.coinbase.com");
+
+            ws.onopen = function() {
+              ws.send(JSON.stringify({
+                type: "subscribe",
+                product_ids: productIds,
+                channels: ["ticker"]
+              }));
+            };
+
+            ws.onmessage = function(ev) {
+              let msg;
+              try { msg = JSON.parse(ev.data); } catch(e) { return; }
+              if (msg.type !== "ticker" || !msg.price) return;
+              const sym = (msg.product_id || "").split("-")[0];
+              const price = parseFloat(msg.price);
+              if (!sym || !isFinite(price)) return;
+              const formatted = "$" + price.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              });
+              root.querySelectorAll(
+                ".kalshi-spot-live[data-symbol='" + sym + "']"
+              ).forEach(function(el) {
+                el.textContent = formatted;
+              });
+            };
+
+            ws.onclose = function() {
+              // Reconnect after 3s if the page is still open
+              setTimeout(function() {
+                if (window.parent.__kalshiWs === ws) {
+                  window.parent.__kalshiWs = connectCoinbase();
                 }
-              }
-            });
+              }, 3000);
+            };
+
+            ws.onerror = function() { try { ws.close(); } catch(e){} };
+            return ws;
           }
 
-          function flashSpots() {
-            const spots = root.querySelectorAll(".kalshi-spot-flash");
-            spots.forEach(function(el) {
-              const prev = el.dataset.prevText;
-              const cur = el.textContent;
-              if (prev && prev !== cur) {
-                el.classList.remove("kalshi-spot-flash-pulse");
-                void el.offsetWidth;
-                el.classList.add("kalshi-spot-flash-pulse");
-              }
-              el.dataset.prevText = cur;
-            });
-          }
-
+          // Cleanup any prior intervals/sockets from previous reruns
           if (window.parent.__kalshiTickInterval) {
             clearInterval(window.parent.__kalshiTickInterval);
           }
-          if (window.parent.__kalshiFlashInterval) {
-            clearInterval(window.parent.__kalshiFlashInterval);
+          if (window.parent.__kalshiWs) {
+            try { window.parent.__kalshiWs.close(); } catch(e){}
           }
+
           window.parent.__kalshiTickInterval = setInterval(tick, 250);
-          window.parent.__kalshiFlashInterval = setInterval(flashSpots, 800);
+          window.parent.__kalshiWs = connectCoinbase();
           tick();
-          flashSpots();
         })();
         </script>
         """,
@@ -455,7 +511,7 @@ def _render_calibration_panel() -> None:
             st.rerun()
 
 
-def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_ev: float, sort_mode: str) -> None:
+def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_ev: float, sort_mode: str, stake: float = 10.0) -> None:
     st.subheader(f"{symbol}")
     spot, err = _resolve_spot(symbol)
     spot_col, override_col = st.columns([2.4, 1.6])
@@ -539,11 +595,11 @@ def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_
             [d for d in decisions if d.direction == "PASS"], sort_mode
         )
         for d in actionable:
-            _render_decision_row(d, calib_report=calib)
+            _render_decision_row(d, calib_report=calib, stake=stake)
         if passes:
             with st.expander(f"PASS markets ({len(passes)}) — book in line with model"):
                 for d in passes[:8]:
-                    _render_decision_row(d, calib_report=calib)
+                    _render_decision_row(d, calib_report=calib, stake=stake)
 
     if not any_rendered:
         st.info(f"No active {symbol} markets in the selected horizons right now.")
@@ -583,6 +639,14 @@ def main() -> None:
             2,
             help="Minimum expected return in cents per $1 staked. Acts as a "
             "fee + slippage cushion.",
+        )
+        stake = st.number_input(
+            "Stake size ($)",
+            min_value=1.0,
+            max_value=10000.0,
+            value=10.0,
+            step=1.0,
+            help="Used to show concrete dollar payouts on each market row.",
         )
         sort_mode = st.selectbox(
             "Sort markets by",
@@ -633,6 +697,7 @@ def main() -> None:
             min_edge=min_edge_pp / 100.0,
             min_ev=min_ev_cents / 100.0,
             sort_mode=sort_mode,
+            stake=float(stake),
         )
 
 
