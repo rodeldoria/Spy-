@@ -260,9 +260,9 @@ def inject_global_css() -> None:
         .spy-pattern-chip {
             display: inline-flex;
             align-items: center;
-            padding: 3px 9px;
+            padding: 4px 10px;
             border-radius: 999px;
-            font-size: 0.78rem;
+            font-size: 0.82rem;
             font-weight: 600;
             cursor: help;
         }
