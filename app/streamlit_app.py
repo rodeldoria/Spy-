@@ -83,14 +83,6 @@ def _render_alert_row(r: dict) -> None:
         "HOLD":       ("⚪", "#5b6470", "rgba(91,100,112,0.10)", "Stay flat if you're out. Nothing to do here right now."),
     }
     tier_key = tier or ("HOLD" if str(action).upper() == "HOLD" else "")
-    if tier_key in _tier_tips:
-        tip_icon, tip_col, tip_bg, tip_text = _tier_tips[tier_key]
-        st.markdown(
-            f"<div style='border-left:3px solid {tip_col};background:{tip_bg};"
-            f"border-radius:6px;padding:6px 10px;font-size:0.82rem;margin-bottom:6px;'>"
-            f"{tip_icon} {tip_text}</div>",
-            unsafe_allow_html=True,
-        )
 
     body_parts = []
     reasoning = r.get("reasoning")
@@ -121,10 +113,18 @@ def _render_alert_row(r: dict) -> None:
         + "</div>"
     ) if body_parts else ""
 
+    foot_parts = []
+    if tier_key in _tier_tips:
+        tip_icon, tip_col, _tip_bg, tip_text = _tier_tips[tier_key]
+        foot_parts.append(
+            f"<div style='border-left:3px solid {tip_col};padding-left:8px;"
+            f"margin-bottom:4px;'>{tip_icon} {tip_text}</div>"
+        )
+    foot_parts.append("<em>Tap any metric for a quick definition.</em>")
     foot_html = (
         f"<div class='spy-alert-foot'>"
-        f"Tap any metric for a quick definition."
-        f"</div>"
+        + "".join(foot_parts)
+        + "</div>"
     )
 
     st.markdown(
