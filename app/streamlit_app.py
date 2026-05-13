@@ -50,14 +50,29 @@ def _render_alert_row(r: dict) -> None:
     else:
         pills = f"{action_pill(action, conf)} {freshness_pill(r.get('ts'))}"
 
+    _metric_tips = {
+        "Conf": "How sure the model is. Under 40% = sit out.",
+        "Spot": "Live price right now.",
+        "Entry": "Price to buy if the setup confirms.",
+        "Stop": "Cut the trade here if it goes against you.",
+        "Target": "Take profits around this price.",
+        "R:R": "Reward vs risk. 1.5+ is a healthy trade.",
+    }
+    def _m(label: str, value: str) -> str:
+        tip = _metric_tips.get(label, "")
+        return (
+            f"<div class='spy-alert-metric' title=\"{tip}\">"
+            f"<div class='label'>{label}</div><div class='value'>{value}</div></div>"
+        )
+
     metrics_html = (
         f"<div class='spy-alert-metrics'>"
-        f"<div class='spy-alert-metric'><div class='label'>Conf</div><div class='value'>{conf:.0f}%</div></div>"
-        f"<div class='spy-alert-metric'><div class='label'>Spot</div><div class='value'>${spot:,.2f}</div></div>"
-        f"<div class='spy-alert-metric'><div class='label'>Entry</div><div class='value'>${entry:,.2f}</div></div>"
-        f"<div class='spy-alert-metric'><div class='label'>Stop</div><div class='value'>${stop:,.2f}</div></div>"
-        f"<div class='spy-alert-metric'><div class='label'>Target</div><div class='value'>${target:,.2f}</div></div>"
-        f"<div class='spy-alert-metric'><div class='label'>R:R</div><div class='value'>{rr:.2f}</div></div>"
+        f"{_m('Conf', f'{conf:.0f}%')}"
+        f"{_m('Spot', f'${spot:,.2f}')}"
+        f"{_m('Entry', f'${entry:,.2f}')}"
+        f"{_m('Stop', f'${stop:,.2f}')}"
+        f"{_m('Target', f'${target:,.2f}')}"
+        f"{_m('R:R', f'{rr:.2f}')}"
         f"</div>"
     )
 
@@ -65,9 +80,11 @@ def _render_alert_row(r: dict) -> None:
         "ACT_NOW":    ("🟢", "#0a7d2a", "rgba(10,125,42,0.10)", "BUY OPPORTUNITY — enter now, check stop &amp; target, go to Budget page to size your trade."),
         "WATCH":      ("🟡", "#b45309", "rgba(180,83,9,0.10)",  "Setup forming — prepare your order but wait for ACT_NOW confirmation before entering."),
         "STAND_DOWN": ("⚪", "#991b1b", "rgba(153,27,27,0.10)", "Conditions unfavourable — do not open new trades here. Wait for the tide to turn."),
+        "HOLD":       ("⚪", "#5b6470", "rgba(91,100,112,0.10)", "Stay flat if you're out. Nothing to do here right now."),
     }
-    if tier in _tier_tips:
-        tip_icon, tip_col, tip_bg, tip_text = _tier_tips[tier]
+    tier_key = tier or ("HOLD" if str(action).upper() == "HOLD" else "")
+    if tier_key in _tier_tips:
+        tip_icon, tip_col, tip_bg, tip_text = _tier_tips[tier_key]
         st.markdown(
             f"<div style='border-left:3px solid {tip_col};background:{tip_bg};"
             f"border-radius:6px;padding:6px 10px;font-size:0.82rem;margin-bottom:6px;'>"
@@ -104,6 +121,12 @@ def _render_alert_row(r: dict) -> None:
         + "</div>"
     ) if body_parts else ""
 
+    foot_html = (
+        f"<div class='spy-alert-foot'>"
+        f"Tap any metric for a quick definition."
+        f"</div>"
+    )
+
     st.markdown(
         f"<div class='spy-alert-card'>"
         f"<div class='spy-alert-top'>"
@@ -112,6 +135,7 @@ def _render_alert_row(r: dict) -> None:
         f"</div>"
         f"{metrics_html}"
         f"{body_html}"
+        f"{foot_html}"
         f"</div>",
         unsafe_allow_html=True,
     )

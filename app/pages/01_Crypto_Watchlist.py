@@ -211,28 +211,34 @@ def _plain_english_guide(
     # ---- Pattern strip ---------------------------------------------------
     if bundle and bundle.signals:
         consensus_color = {
-            "bullish": "#0a7d2a",
-            "bearish": "#a8261f",
+            "bullish": "#16a34a",
+            "bearish": "#dc2626",
             "mixed": "#6b7280",
             "quiet": "#6b7280",
         }[bundle.consensus]
+        # Use rgba backgrounds + matching solid borders so chips stay legible
+        # against both light and dark themes (WCAG AA on either).
+        _chip_palette = {
+            "bull":    ("#16a34a", "rgba(22,163,74,0.18)",  "rgba(22,163,74,0.55)"),
+            "bear":    ("#dc2626", "rgba(220,38,38,0.18)",  "rgba(220,38,38,0.55)"),
+            "neutral": ("#6b7280", "rgba(107,114,128,0.18)","rgba(107,114,128,0.45)"),
+        }
         chips = []
         for s in bundle.top:
-            chip_color = {"bull": "#0a7d2a", "bear": "#a8261f", "neutral": "#6b7280"}[s.direction]
+            text_col, bg_col, border_col = _chip_palette[s.direction]
             chips.append(
-                f"<span title=\"{s.note}\" "
-                f"style='display:inline-block;padding:3px 8px;margin:2px 4px 2px 0;"
-                f"border-radius:10px;background:rgba(107,114,128,0.10);"
-                f"font-size:0.78rem;color:{chip_color};font-weight:600;'>"
+                f"<span class='spy-pattern-chip' title=\"{s.note}\" "
+                f"style='color:{text_col};background:{bg_col};"
+                f"border:1px solid {border_col};'>"
                 f"{s.emoji} {s.name} · {s.bias_pp:+.1f}pp</span>"
             )
         st.markdown(
-            f"<div style='margin:6px 0 4px 0;font-size:0.82rem;'>"
+            f"<div class='spy-pattern-row'>"
             f"🧠 <strong>Patterns active</strong> · "
-            f"<span style='color:{consensus_color};font-weight:700;'>"
+            f"<span style='color:{consensus_color};font-weight:800;'>"
             f"{bundle.consensus.upper()}</span> "
-            f"<span style='color:#888;'>(net {bundle.net_bias_pp:+.1f}pp tilt to up-side)</span><br/>"
-            f"{''.join(chips)}"
+            f"<span class='spy-meta'>(net {bundle.net_bias_pp:+.1f}pp tilt to up-side)</span>"
+            f"<div class='spy-pattern-chips'>{''.join(chips)}</div>"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -282,21 +288,51 @@ def _plain_english_guide(
             )
 
 
+_FACTOR_TIPS = {
+    "RSI": "Relative Strength Index. + = oversold bounce setup, − = overbought fade.",
+    "MACD": "Trend-momentum cross. + = bullish momentum, − = bearish.",
+    "BB %b": "Position within Bollinger bands. + = near upper band, − = near lower.",
+    "Bollinger": "Position vs Bollinger bands. + = upper band, − = lower band.",
+    "Trend": "Slope of the moving averages. + = up-trend, − = down-trend.",
+    "Regime": "Macro regime tilt. + = risk-on, − = risk-off.",
+    "Volume": "Volume vs typical. + = unusual buying, − = unusual selling.",
+    "Momentum": "Rate-of-change. + = accelerating, − = decelerating.",
+    "ROC": "Rate-of-change. + = accelerating, − = decelerating.",
+}
+
+
 def _render_contributions(contribs: list[dict]) -> None:
     if not contribs:
         return
-    cols = st.columns(len(contribs))
-    for col, c in zip(cols, contribs):
+    pills = []
+    for c in contribs:
+        name = str(c.get("name") or "?")
         score = float(c.get("score", 0.0))
         sign = "+" if score >= 0 else ""
-        col.markdown(
-            f"<div style='text-align:center;'>"
-            f"<div class='spy-meta'>{c.get('name')}</div>"
-            f"<div style='font-weight:700;color:{'#0a7d2a' if score>0 else ('#a8261f' if score<0 else '#5b6470')};'>"
-            f"{sign}{score:.2f}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
+        if score > 0.05:
+            color = "#16a34a"
+        elif score < -0.05:
+            color = "#dc2626"
+        else:
+            color = "#6b7280"
+        tip = _FACTOR_TIPS.get(name, f"{name} factor score (range −1 to +1).")
+        pills.append(
+            f"<div class='spy-factor-pill' title=\"{tip}\">"
+            f"<div class='label'>{name}</div>"
+            f"<div class='value' style='color:{color};'>{sign}{score:.2f}</div>"
+            f"</div>"
         )
+    st.markdown(
+        f"<div class='spy-factor-card'>"
+        f"<div class='spy-factor-head'>📊 Factor breakdown</div>"
+        f"<div class='spy-factor-help'>"
+        f"Each factor scores −1 to +1. Green = bullish push, red = bearish push, "
+        f"grey = neutral. Tap a tile for what it measures."
+        f"</div>"
+        f"<div class='spy-factor-grid'>{''.join(pills)}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_news(sym: str, action_label: str, news_enabled: bool) -> None:

@@ -138,6 +138,173 @@ def inject_global_css() -> None:
         }
         .spy-plain ul { margin: 4px 0 0 0; padding-left: 18px; }
         .spy-plain li { margin: 2px 0; font-size: 0.9rem; }
+        /* ── Alert card (Live Signals + HOLD rows) ── */
+        .spy-alert-card {
+            border: 1px solid rgba(127,127,127,0.22);
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin: 8px 0 10px 0;
+            background: rgba(127,127,127,0.04);
+        }
+        .spy-alert-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .spy-alert-symbol {
+            font-weight: 700;
+            font-size: 1.05rem;
+        }
+        .spy-alert-pills {
+            display: inline-flex;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+        .spy-alert-metrics {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 6px;
+            margin: 6px 0 8px 0;
+        }
+        .spy-alert-metric {
+            border: 1px solid rgba(127,127,127,0.20);
+            border-radius: 8px;
+            padding: 6px 8px;
+            text-align: center;
+            background: rgba(127,127,127,0.04);
+            min-width: 0;
+            cursor: help;
+        }
+        .spy-alert-metric .label {
+            font-size: 0.68rem;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-bottom: 2px;
+        }
+        .spy-alert-metric .value {
+            font-weight: 700;
+            font-size: 0.92rem;
+            line-height: 1.1;
+            word-break: break-word;
+        }
+        .spy-alert-body {
+            font-size: 0.85rem;
+            line-height: 1.45;
+            margin-top: 4px;
+            opacity: 0.92;
+        }
+        .spy-alert-foot {
+            margin-top: 6px;
+            font-size: 0.78rem;
+            color: #6b7280;
+            line-height: 1.35;
+        }
+        /* ── Factor breakdown grid (replaces st.columns wall) ── */
+        .spy-factor-card {
+            border: 1px solid rgba(127,127,127,0.22);
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin: 6px 0 10px 0;
+            background: rgba(127,127,127,0.03);
+        }
+        .spy-factor-head {
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin-bottom: 2px;
+        }
+        .spy-factor-help {
+            font-size: 0.74rem;
+            color: #6b7280;
+            margin-bottom: 8px;
+        }
+        .spy-factor-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 6px;
+        }
+        .spy-factor-pill {
+            border: 1px solid rgba(127,127,127,0.22);
+            border-radius: 8px;
+            padding: 6px 8px;
+            text-align: center;
+            background: rgba(127,127,127,0.04);
+            min-width: 0;
+            cursor: help;
+        }
+        .spy-factor-pill .label {
+            font-size: 0.66rem;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .spy-factor-pill .value {
+            font-weight: 700;
+            font-size: 0.9rem;
+            line-height: 1.15;
+        }
+        /* ── Pattern chips (Patterns active strip) ── */
+        .spy-pattern-row {
+            margin: 8px 0 4px 0;
+            font-size: 0.85rem;
+        }
+        .spy-pattern-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 4px;
+            margin-top: 4px;
+        }
+        .spy-pattern-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 9px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: help;
+        }
+        /* ── Forecast probability bar (Kalshi range buckets) ── */
+        .spy-prob-bar {
+            padding: 9px 12px;
+            margin: 4px 0;
+            border-radius: 8px;
+            border: 1px solid rgba(127,127,127,0.20);
+            background: rgba(127,127,127,0.05);
+        }
+        .spy-prob-bar.is-best {
+            border: 2px solid #22c55e;
+            background: rgba(34,197,94,0.10);
+        }
+        .spy-prob-bar .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+            gap: 8px;
+        }
+        .spy-prob-bar .label {
+            font-size: 0.88rem;
+            font-weight: 600;
+        }
+        .spy-prob-bar .pct {
+            font-weight: 800;
+            font-size: 1.0rem;
+            font-variant-numeric: tabular-nums;
+        }
+        .spy-prob-bar .track {
+            background: rgba(127,127,127,0.22);
+            border-radius: 4px;
+            height: 8px;
+            overflow: hidden;
+        }
+        .spy-prob-bar .fill {
+            height: 8px;
+            border-radius: 4px;
+            transition: width 0.4s;
+        }
         .spy-stream {
             display: inline-flex;
             align-items: center;
@@ -179,6 +346,15 @@ def inject_global_css() -> None:
             }
             .spy-card-header h3 { font-size: 1rem; }
             .spy-pill { font-size: 0.72rem; padding: 2px 8px; }
+            /* Keep these grids as grids on mobile — independent of column stack */
+            .spy-alert-metrics {
+                grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            }
+            .spy-factor-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            }
+            .spy-alert-metric .value { font-size: 0.88rem; }
+            .spy-alert-card { padding: 10px 12px; }
         }
         </style>
         """,

@@ -156,30 +156,29 @@ def _volume(market: dict) -> float:
 # ── Rendering helpers ─────────────────────────────────────────────────────────
 
 def _prob_bar(prob: float, label: str, highlight: bool = False) -> str:
+    """Render one probability row. Bar fill encodes the tier; text always
+    uses theme-aware colors so the percentage stays readable on both light
+    and dark backgrounds (CSS in app/_ui.py handles theming)."""
     pct = round(prob * 100)
     if prob >= 0.65:
-        bar_color = "#22c55e"
-        text_color = "#166534"
+        bar_color = "#22c55e"  # green
     elif prob >= 0.40:
-        bar_color = "#f59e0b"
-        text_color = "#92400e"
+        bar_color = "#f59e0b"  # amber
     else:
-        bar_color = "#ef4444"
-        text_color = "#991b1b"
-
-    border = "border:2px solid #22c55e;border-radius:8px;" if highlight else "border-radius:8px;"
-    bg = "background:#f0fdf4;" if highlight else "background:#1e2433;"
+        bar_color = "#94a3b8"  # neutral slate — readable, not alarming red
     star = "⭐ " if highlight else ""
-    return f"""
-<div style="{bg}padding:8px 12px;margin:3px 0;{border}">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-    <span style="font-size:0.88rem;color:#cbd5e1;">{star}{label}</span>
-    <span style="font-weight:700;font-size:1.0rem;color:{text_color if highlight else bar_color};">{pct}%</span>
-  </div>
-  <div style="background:#374151;border-radius:4px;height:8px;overflow:hidden;">
-    <div style="background:{bar_color};width:{pct}%;height:8px;border-radius:4px;transition:width 0.4s;"></div>
-  </div>
-</div>"""
+    classes = "spy-prob-bar is-best" if highlight else "spy-prob-bar"
+    return (
+        f"<div class='{classes}'>"
+        f"<div class='row'>"
+        f"<span class='label'>{star}{label}</span>"
+        f"<span class='pct' style='color:{bar_color};'>{pct}%</span>"
+        f"</div>"
+        f"<div class='track'>"
+        f"<div class='fill' style='background:{bar_color};width:{pct}%;'></div>"
+        f"</div>"
+        f"</div>"
+    )
 
 
 def _render_range_event(event: dict, max_markets: int = 8) -> None:
@@ -198,6 +197,10 @@ def _render_range_event(event: dict, max_markets: int = 8) -> None:
     top = probs[:max_markets]
 
     best_prob = top[0][1] if top else 0.0
+    st.caption(
+        "Each row is a price range the market is pricing right now. "
+        "The starred bar is the consensus pick — bar length = probability."
+    )
     html_parts = []
     for m, prob in top:
         subtitle = m.get("subtitle") or m.get("yes_sub_title") or "?"
