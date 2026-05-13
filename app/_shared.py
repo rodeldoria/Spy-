@@ -28,7 +28,8 @@ def pattern_store():
 # Minimum bars to cover a 2-week lookback window per timeframe.
 # Used for indicator stability and journal-similarity matching.
 _BARS_PER_TWO_WEEKS = {
-    "1m":  14 * 24 * 60,
+    # 1m caps at 7d on yfinance, so cap the bar request to keep us in-range.
+    "1m":  7 * 24 * 60,
     "5m":  14 * 24 * 12,
     "15m": 14 * 24 * 4,
     "30m": 14 * 24 * 2,

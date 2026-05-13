@@ -16,6 +16,7 @@ from __future__ import annotations
 import plotly.graph_objects as go
 import streamlit as st
 
+from app._chart import build_chart
 from app._shared import (
     candles_short,
     live_price,
@@ -34,6 +35,7 @@ from app.signals import rsi as rsi_signal
 from app.signals import sma_crossover, vwap_reversion
 from app._shared import pattern_store
 from monte import journal
+from monte.indicators.ma_cross import detect_cross
 from monte.indicators.regime import classify_regime
 from monte.indicators.technical import bollinger, macd, rsi
 from monte.intel import perplexity
@@ -297,6 +299,12 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
     if edge is not None and edge.macro_note:
         st.caption(f"📊 Macro: {edge.macro_note} · confluence {edge.confluence}/5")
 
+    # SMA20/50 cross — high-signal swing trigger.
+    cross = detect_cross(close, fast=20, slow=50)
+    if cross.fired_recently:
+        kind = "ok" if cross.kind == "golden" else "err"
+        st.markdown(status_pill(cross.label(), kind), unsafe_allow_html=True)
+
     m = st.columns(5)
     m[0].metric("Spot", f"${spot:,.2f}", help=f"source: {src}")
     m[1].metric("RSI(14)", f"{last_rsi:.0f}", help="<30 oversold · >70 overbought")
@@ -304,7 +312,13 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
     m[3].metric("MACD hist", f"{macd_hist:+.3f}", help="positive = bullish momentum")
     m[4].metric("Regime", regime.regime.value, f"ADX {regime.adx:.0f}")
 
-    st.plotly_chart(_sparkline(close.tail(400)), use_container_width=True)
+    # Full chart: candles + BB + SMA20/50/200 + volume + RSI + MACD + cross marker.
+    chart_df = df.tail(400)
+    st.plotly_chart(
+        build_chart(chart_df, ma_cross=cross, height=560),
+        use_container_width=True,
+        key=f"chart-{sym}-{timeframe}",
+    )
 
     if alert.action.value != "HOLD":
         direction = "Long" if alert.score > 0 else "Short"
@@ -389,11 +403,22 @@ def main() -> None:
     setup_page("Crypto + SPY Watchlist", icon="📊")
     inject_global_css()
 
+    from streamlit_autorefresh import st_autorefresh
+
     crypto, stocks = sidebar_watchlists()
     timeframe = st.sidebar.selectbox(
-        "Timeframe", ["1h", "15m", "5m", "1d"], index=0,
-        help="Pulls ~2 weeks of bars at the selected timeframe.",
+        "Timeframe",
+        ["1m", "5m", "15m", "30m", "1h", "1d"],
+        index=2,  # default 15m
+        help="1m = highest resolution (yfinance limit: last 7 days only).",
     )
+    refresh_secs = st.sidebar.select_slider(
+        "Auto-refresh",
+        options=[5, 15, 30, 60, 120, 300],
+        value=30,
+        help="How often the cards re-pull candles and live prices.",
+    )
+    st_autorefresh(interval=refresh_secs * 1000, key="watchlist_refresh")
     news_enabled = st.sidebar.checkbox(
         "News confirmation (Perplexity)",
         value=True,
