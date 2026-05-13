@@ -268,10 +268,28 @@ def fetch_influencer_pulse(symbol: str, *, model: str | None = None) -> Influenc
         with request.urlopen(req, timeout=20) as resp:
             payload = json.loads(resp.read().decode())
     except error.HTTPError as e:
+        # Perplexity returns HTTP 401 for both bad keys AND exhausted
+        # quota — read the body so we can give an honest reason.
+        try:
+            err_body = e.read().decode("utf-8", errors="ignore")
+            err_json = json.loads(err_body)
+            err_type = (err_json.get("error") or {}).get("type", "")
+            err_msg = (err_json.get("error") or {}).get("message", "")
+        except Exception:
+            err_type, err_msg = "", ""
+        if err_type == "insufficient_quota" or "quota" in err_msg.lower():
+            human = (
+                "Perplexity account is out of quota — top up at "
+                "perplexity.ai/settings/api or swap in a funded key."
+            )
+        elif e.code == 401:
+            human = "Perplexity API key rejected (401). Check the key value."
+        else:
+            human = f"Perplexity HTTP {e.code} {err_msg or ''}".strip()
         return InfluencerPulse(
             symbol=symbol, configured=True, overall_sentiment="quiet",
-            net_bias=0.0, summary=f"Perplexity HTTP {e.code}",
-            fetched_at=time.time(), error=str(e),
+            net_bias=0.0, summary=human,
+            fetched_at=time.time(), error=human,
         )
     except Exception as e:
         return InfluencerPulse(
