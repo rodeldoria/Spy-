@@ -584,7 +584,7 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
         bundle = None
 
     try:
-        projections = forecast_horizons(close, spot)
+        projections = standard_horizons(close, spot, timeframe)
     except Exception:
         projections = []
     try:
