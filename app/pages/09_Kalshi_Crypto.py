@@ -54,7 +54,7 @@ def _fetch_markets(symbol: str, horizons: tuple[str, ...]) -> dict[str, list[Kal
     return _client().crypto_markets(symbol, horizons=horizons)
 
 
-@st.cache_data(ttl=8, show_spinner=False)
+@st.cache_data(ttl=2, show_spinner=False)
 def _fetch_spot(symbol: str) -> SpotQuote:
     return get_spot_price(symbol)
 
@@ -182,9 +182,10 @@ def _render_decision_row(d: Decision, calib_report=None) -> None:
 
         cols[0].markdown(
             f"**{d.title}**  \n"
-            f"<span class='spy-meta'>Closes in {_countdown(d.horizon_seconds)} · "
-            f"Spot ${d.spot_price:,.2f} ({d.spot_source}) · "
-            f"σ {d.sigma_per_min*100:.3f}%/min</span>  \n"
+            f"<span class='spy-meta'>Closes in <span class='kalshi-countdown' "
+            f"data-close-ts='{d.close_time:.0f}'>{_countdown(d.horizon_seconds)}</span> · "
+            f"Spot <span class='kalshi-spot-flash'>${d.spot_price:,.2f}</span> "
+            f"({d.spot_source}) · σ {d.sigma_per_min*100:.3f}%/min</span>  \n"
             + (f"<span style='color:#2563eb;font-weight:600;font-size:0.85rem;'>"
                f"📌 Bet: {d.bet_summary}</span>" if d.bet_summary else "")
             + calib_line,
@@ -256,6 +257,106 @@ def _sort_decisions(decisions: list[Decision], sort_mode: str) -> list[Decision]
         )
     # Default: best edge first
     return sorted(decisions, key=lambda d: -max(d.yes_side.edge, d.no_side.edge))
+
+
+def _inject_live_countdown_js() -> None:
+    """Tick every countdown span and pulse spot prices in the user's browser.
+
+    Streamlit only re-renders on auto-refresh, but countdown seconds need to
+    update every frame to feel "alive". This script runs in a 0-height iframe
+    component and reaches into the parent document to update text from each
+    `.kalshi-countdown` span's `data-close-ts` attribute. Spot-price spans
+    get a brief flash class on each Streamlit refresh so the eye catches the
+    change like a Robinhood ticker.
+    """
+    import streamlit.components.v1 as components
+
+    components.html(
+        """
+        <style>
+          @keyframes kalshi-flash {
+            0%   { background: rgba(34,197,94,0.45); }
+            100% { background: transparent; }
+          }
+          .kalshi-spot-flash-pulse {
+            animation: kalshi-flash 0.9s ease-out;
+            border-radius: 4px;
+            padding: 0 3px;
+          }
+        </style>
+        <script>
+        (function() {
+          const root = window.parent.document;
+
+          function fmt(secs) {
+            if (secs <= 0) return "closed";
+            const s = Math.floor(secs);
+            if (s < 60) return s + "s";
+            if (s < 3600) {
+              const m = Math.floor(s / 60);
+              const r = s % 60;
+              return m + "m " + (r < 10 ? "0" : "") + r + "s";
+            }
+            if (s < 86400) {
+              const h = Math.floor(s / 3600);
+              const m = Math.floor((s % 3600) / 60);
+              return h + "h " + (m < 10 ? "0" : "") + m + "m";
+            }
+            const d = Math.floor(s / 86400);
+            const h = Math.floor((s % 86400) / 3600);
+            return d + "d " + (h < 10 ? "0" : "") + h + "h";
+          }
+
+          function tick() {
+            const now = Date.now() / 1000;
+            const els = root.querySelectorAll(".kalshi-countdown");
+            els.forEach(function(el) {
+              const ts = parseFloat(el.dataset.closeTs);
+              if (!ts) return;
+              const remaining = ts - now;
+              const txt = fmt(remaining);
+              if (el.textContent !== txt) {
+                el.textContent = txt;
+                if (remaining > 0 && remaining < 60) {
+                  el.style.color = "#dc2626";
+                  el.style.fontWeight = "700";
+                } else if (remaining > 0 && remaining < 300) {
+                  el.style.color = "#f59e0b";
+                  el.style.fontWeight = "600";
+                }
+              }
+            });
+          }
+
+          function flashSpots() {
+            const spots = root.querySelectorAll(".kalshi-spot-flash");
+            spots.forEach(function(el) {
+              const prev = el.dataset.prevText;
+              const cur = el.textContent;
+              if (prev && prev !== cur) {
+                el.classList.remove("kalshi-spot-flash-pulse");
+                void el.offsetWidth;
+                el.classList.add("kalshi-spot-flash-pulse");
+              }
+              el.dataset.prevText = cur;
+            });
+          }
+
+          if (window.parent.__kalshiTickInterval) {
+            clearInterval(window.parent.__kalshiTickInterval);
+          }
+          if (window.parent.__kalshiFlashInterval) {
+            clearInterval(window.parent.__kalshiFlashInterval);
+          }
+          window.parent.__kalshiTickInterval = setInterval(tick, 250);
+          window.parent.__kalshiFlashInterval = setInterval(flashSpots, 800);
+          tick();
+          flashSpots();
+        })();
+        </script>
+        """,
+        height=0,
+    )
 
 
 def _strike_from_summary(summary: str) -> float:
@@ -495,9 +596,11 @@ def main() -> None:
             help="How to order markets within each horizon group.",
         )
         refresh_secs = st.select_slider(
-            "Auto-refresh",
-            options=[5, 10, 30, 60, 120, 300],
-            value=30,
+            "Auto-refresh (book + spot)",
+            options=[3, 5, 10, 30, 60, 120, 300],
+            value=5,
+            help="How often to re-pull the Kalshi book and crypto spot. "
+            "Countdown seconds tick every 250ms client-side regardless.",
         )
         st_autorefresh(interval=refresh_secs * 1000, key="kalshi_refresh")
 
@@ -521,6 +624,7 @@ def main() -> None:
     _kalshi_help()
     _maybe_settle()
     _render_calibration_panel()
+    _inject_live_countdown_js()
 
     for symbol in symbols:
         _render_symbol(
