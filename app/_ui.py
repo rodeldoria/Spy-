@@ -156,6 +156,55 @@ def inject_global_css() -> None:
             border-radius: 10px;
         }
 
+        /* ── Forecast grid — predicted price at each horizon ── */
+        .spy-fc-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 6px;
+            margin: 4px 0 10px 0;
+        }
+        .spy-fc-cell {
+            border: 1px solid rgba(127,127,127,0.22);
+            border-radius: 8px;
+            padding: 8px 10px;
+            background: rgba(127,127,127,0.04);
+            min-width: 0;
+        }
+        .spy-fc-label {
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #94a3b8;
+        }
+        .spy-fc-time {
+            font-size: 0.68rem;
+            color: #6b7280;
+            margin-bottom: 4px;
+        }
+        .spy-fc-price {
+            font-size: 1.05rem;
+            font-weight: 700;
+        }
+        .spy-fc-delta {
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+        .spy-fc-range {
+            font-size: 0.68rem;
+            color: #6b7280;
+            margin-top: 2px;
+        }
+        .spy-fc-band {
+            font-size: 0.66rem;
+            color: #94a3b8;
+            margin-top: 2px;
+        }
+        @media (max-width: 768px) {
+            .spy-fc-grid { grid-template-columns: repeat(2, 1fr); }
+            .spy-fc-price { font-size: 0.95rem; }
+        }
+
         /* ── BUY / SELL pulse animations ── */
         @keyframes buy-pulse {
             0%   { box-shadow: 0 0 0 0   rgba(10,125,42,0.70); }

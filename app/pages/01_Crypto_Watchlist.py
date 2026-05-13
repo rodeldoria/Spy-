@@ -43,6 +43,7 @@ from monte.intel import perplexity
 from monte.options import suggest_contract as suggest_option
 from monte.patterns.match import find_similar
 from monte.signals.dip_pump import detect
+from monte.signals.forecast import standard_horizons
 from monte.signals.horizon import HORIZON_HOLD_HINT, HORIZON_LABEL
 from monte.strategies.signals import action_from_score
 from monte.strategy.monte_edge import EdgeTier, evaluate as edge_evaluate
@@ -73,6 +74,58 @@ def _horizon_pill(horizon_value: str) -> str:
     return (
         f"<span class='spy-pill' style='color:{fg};background:{bg};'>"
         f"⏱ {label}</span>"
+    )
+
+
+def _render_forecast_grid(close, spot: float, timeframe: str, sym: str) -> None:
+    """Show a forecast grid: predicted price/range at 15m, 1h, 3h, key times.
+
+    Useful for sizing Kalshi calls and short-term option entries — every
+    card answers "where is this likely to be at the top of the next hour?"
+    based on recent realised volatility (NOT a guarantee, just a calibrated
+    range).
+    """
+    try:
+        projections = standard_horizons(close, spot, timeframe)
+    except Exception:
+        return
+    if not projections:
+        return
+
+    cells = []
+    for p in projections:
+        if p.drift_pct > 0.05:
+            color = "#0a7d2a"
+            arrow = "▲"
+        elif p.drift_pct < -0.05:
+            color = "#a8261f"
+            arrow = "▼"
+        else:
+            color = "#6b7280"
+            arrow = "→"
+
+        target_str = p.target_dt.strftime("%H:%M UTC")
+        cells.append(
+            f"<div class='spy-fc-cell'>"
+            f"<div class='spy-fc-label'>{p.label}</div>"
+            f"<div class='spy-fc-time'>by {target_str}</div>"
+            f"<div class='spy-fc-price' style='color:{color};'>{arrow} ${p.median:,.2f}</div>"
+            f"<div class='spy-fc-delta' style='color:{color};'>{p.drift_pct:+.2f}%</div>"
+            f"<div class='spy-fc-range'>±${(p.upper - p.median):,.2f} ({p.range_pct:.2f}%)</div>"
+            f"<div class='spy-fc-band'>${p.lower:,.2f} → ${p.upper:,.2f}</div>"
+            f"</div>"
+        )
+
+    st.markdown(
+        "<div class='spy-meta' style='margin:8px 0 4px 0;'>"
+        f"📈 <strong>Forecast grid</strong> — projected price &amp; 1σ band at each horizon "
+        "<span style='color:#888;'>(based on recent volatility — for Kalshi/options sizing, not a guarantee)</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div class='spy-fc-grid'>{''.join(cells)}</div>",
+        unsafe_allow_html=True,
     )
 
 
@@ -360,6 +413,8 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
     if cross.fired_recently:
         kind = "ok" if cross.kind == "golden" else "err"
         st.markdown(status_pill(cross.label(), kind), unsafe_allow_html=True)
+
+    _render_forecast_grid(close, spot, timeframe, sym)
 
     m = st.columns(5)
     m[0].metric("Spot", f"${spot:,.2f}", help=f"source: {src}")
