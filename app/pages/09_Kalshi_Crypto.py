@@ -33,6 +33,7 @@ from app.kalshi import (
 )
 from app.kalshi.spot import SpotQuote, default_sigma_per_min, manual_quote
 from monte.learning import kalshi_calibration as kcal
+from monte.learning import pattern_tracker as ptrack
 from monte.intel import decision_council as council
 
 SYMBOLS = ["BTC", "ETH", "SOL"]
@@ -395,6 +396,25 @@ def _render_council_card(d: Decision, verdict: council.CouncilVerdict) -> None:
         for step in verdict.playbook
     )
 
+    # Learning badge — surface the pattern-tracker multiplier so the user
+    # can see confidence shifting based on this signature's history.
+    if verdict.learning_multiplier > 1.05:
+        lc = "#22c55e"
+        l_arrow = f"↑ ×{verdict.learning_multiplier:.2f}"
+    elif verdict.learning_multiplier < 0.95:
+        lc = "#ef4444"
+        l_arrow = f"↓ ×{verdict.learning_multiplier:.2f}"
+    else:
+        lc = "#94a3b8"
+        l_arrow = f"= ×{verdict.learning_multiplier:.2f}"
+    learning_html = (
+        f"<div style='font-size:0.72rem;color:{lc};margin-top:6px;'>"
+        f"📓 Pattern history: <strong>{l_arrow}</strong> "
+        f"<span style='color:#94a3b8;'>· sig <code style='color:#e2e8f0;'>"
+        f"{verdict.signature or '????????'}</code> · {verdict.learning_label}</span>"
+        f"</div>"
+    )
+
     title = f"{d.bet_summary or d.title}" if d.bet_summary else d.title
     st.markdown(
         f"<div style='padding:12px 14px;margin:6px 0;background:#111827;"
@@ -408,6 +428,7 @@ def _render_council_card(d: Decision, verdict: council.CouncilVerdict) -> None:
         f"<div style='background:{band_color};width:{bar_pct}%;height:6px;'></div>"
         f"</div>"
         f"<div style='color:#cbd5e1;font-size:0.86rem;margin-top:6px;'>{verdict.headline}</div>"
+        f"{learning_html}"
         f"<div style='font-size:0.7rem;color:#94a3b8;margin-top:8px;'>"
         f"<strong>8-framework scorecard</strong> · {verdict.passed_count}/8 checkpoints cleared</div>"
         f"{cells}"
@@ -442,13 +463,53 @@ def _render_council_panel(
 
     verdicts.sort(key=lambda x: -x[1].trigger_score)
     top = verdicts[0]
+
+    # Log every verdict to the pattern tracker (deduped to once per market
+    # per 5 minutes). This is what populates Claude's Playbook so the user
+    # can see the pattern history and watch confidence improve as outcomes
+    # settle.
+    n_logged = 0
+    for d, v in verdicts:
+        try:
+            wrote = ptrack.record_verdict(
+                market_ticker=d.market_ticker,
+                symbol=symbol,
+                bet_summary=d.bet_summary or d.title,
+                direction=d.direction,
+                ask_cents=(d.chosen.ask_cents if d.chosen else 0),
+                edge_pp=(d.chosen.edge * 100 if d.chosen else 0.0),
+                ev_per_dollar=(d.chosen.ev_per_dollar if d.chosen else 0.0),
+                kelly_fraction=(d.chosen.kelly_fraction if d.chosen else 0.0),
+                confidence_pct=d.confidence_pct,
+                trigger_score=v.trigger_score,
+                mechanical_score=v.mechanical_score,
+                ai_score=v.ai_score,
+                verdict_label=v.verdict_label,
+                signature=v.signature,
+                checkpoint_names=[c.name for c in v.checkpoints],
+                close_time=d.close_time,
+            )
+            if wrote:
+                n_logged += 1
+        except Exception:
+            continue
+    # Try to settle any verdicts whose markets have now closed. Cache
+    # for 5 min so we don't hammer the kalshi log on every refresh.
+    @st.cache_data(ttl=300, show_spinner=False)
+    def _cached_reconcile(_t: int) -> dict:
+        try:
+            return ptrack.reconcile_outcomes()
+        except Exception:
+            return {"settled": 0, "still_pending": 0}
+    _cached_reconcile(int(time.time() // 300))
     st.markdown(
         f"<div style='margin:10px 0 6px 0;'>"
         f"<span style='font-size:1.05rem;font-weight:700;color:#e2e8f0;'>"
         f"🚦 AI Decision Council — {symbol}</span>"
         f"<span style='color:#94a3b8;font-size:0.78rem;margin-left:8px;'>"
         f"Top pick: <strong style='color:#e2e8f0;'>{top[1].verdict_emoji} "
-        f"{top[1].verdict_label}</strong> · {top[1].trigger_score:.0f}/100</span>"
+        f"{top[1].verdict_label}</strong> · {top[1].trigger_score:.0f}/100"
+        f" · 📓 {n_logged} new pattern(s) logged this refresh</span>"
         f"</div>",
         unsafe_allow_html=True,
     )

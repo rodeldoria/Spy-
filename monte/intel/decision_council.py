@@ -55,7 +55,7 @@ class Checkpoint:
 
 @dataclass
 class CouncilVerdict:
-    trigger_score: float          # 0..100 final (mechanical or blended)
+    trigger_score: float          # 0..100 final (mechanical or blended, post-learning)
     mechanical_score: float       # 0..100 from the 8 checkpoints
     ai_score: Optional[float]     # 0..100 from Claude, or None
     verdict_emoji: str            # 🟢 / 🟡 / 🟠 / 🔴
@@ -65,6 +65,11 @@ class CouncilVerdict:
     ai_summary: Optional[str] = None
     ai_error: Optional[str] = None
     playbook: list[str] = field(default_factory=list)   # 3 steps
+    # Pattern-tracker learning
+    signature: str = ""           # e.g. '11010110' — which checkpoints passed
+    learning_multiplier: float = 1.0   # signature's historical confidence multiplier
+    learning_label: str = ""      # e.g. "learned (12 settled, 75% hit, +18.4% ROI)"
+    pre_learning_score: float = 0.0   # raw score before applying multiplier
 
     @property
     def passed_count(self) -> int:
@@ -348,9 +353,25 @@ def evaluate(
             _AI_CACHE[cache_key] = (time.time(), (ai_score, ai_summary, ai_error))
 
     if ai_score is not None:
-        final = (mech + ai_score) / 2.0
+        raw_final = (mech + ai_score) / 2.0
     else:
-        final = mech
+        raw_final = mech
+
+    # ----- Pattern-tracker learning bump ---------------------------------
+    # Look up this checkpoint signature's historical hit rate and apply a
+    # confidence multiplier (0.6 .. 1.4). After ≥5 settled outcomes we
+    # actually move the score; before that the multiplier is 1.0.
+    signature = ""
+    learning_mult = 1.0
+    learning_label = "raw (no history yet)"
+    try:
+        from monte.learning import pattern_tracker as ptrack
+        signature = ptrack.signature_from_checkpoints(checks)
+        learning_mult, learning_label = ptrack.confidence_multiplier(signature)
+    except Exception:
+        pass
+    pre_learning = raw_final
+    final = max(0.0, min(100.0, raw_final * learning_mult))
 
     if final >= 80:
         emoji, label = "🟢", "PULL THE TRIGGER"
@@ -406,6 +427,10 @@ def evaluate(
         ai_summary=ai_summary,
         ai_error=ai_error,
         playbook=playbook,
+        signature=signature,
+        learning_multiplier=learning_mult,
+        learning_label=learning_label,
+        pre_learning_score=pre_learning,
     )
 
 
