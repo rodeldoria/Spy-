@@ -32,6 +32,7 @@ from app.kalshi import (
     score_event,
 )
 from app.kalshi.spot import SpotQuote, default_sigma_per_min, manual_quote
+from monte.learning import kalshi_calibration as kcal
 
 SYMBOLS = ["BTC", "ETH", "SOL"]
 HORIZONS = ["15min", "hourly", "daily", "weekly"]
@@ -56,6 +57,28 @@ def _fetch_markets(symbol: str, horizons: tuple[str, ...]) -> dict[str, list[Kal
 @st.cache_data(ttl=8, show_spinner=False)
 def _fetch_spot(symbol: str) -> SpotQuote:
     return get_spot_price(symbol)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def _cached_calibration():
+    """Reload calibration report at most every 15s."""
+    return kcal.calibration_report()
+
+
+def _maybe_settle(force: bool = False) -> None:
+    """Run the settlement back-fill at most once every 5 minutes."""
+    last = st.session_state.get("kalshi_last_settle_ts", 0)
+    now = time.time()
+    if not force and (now - last) < 300:
+        return
+    st.session_state["kalshi_last_settle_ts"] = now
+    try:
+        summary = kcal.settle_pending(_client(), max_lookups=10)
+        st.session_state["kalshi_last_settle_summary"] = summary
+        # Bust the calibration cache so the new outcome appears immediately
+        _cached_calibration.clear()
+    except Exception as e:
+        st.session_state["kalshi_last_settle_summary"] = {"error": str(e)}
 
 
 def _direction_pill(direction: str, confidence: float) -> str:
@@ -139,16 +162,32 @@ def _countdown(seconds: float) -> str:
     return f"{s // 86400}d {(s % 86400) // 3600:02d}h"
 
 
-def _render_decision_row(d: Decision) -> None:
+def _render_decision_row(d: Decision, calib_report=None) -> None:
     with st.container(border=True):
         cols = st.columns([3.0, 1.4, 1.4, 1.6])
+
+        # Calibration line: show what the model probability becomes after
+        # learning from past settled markets, when we have enough data.
+        calib_line = ""
+        if calib_report and calib_report.n_settled >= 30:
+            cal_yes, src = kcal.calibrate_prob(d.yes_side.model_prob)
+            shift = (cal_yes - d.yes_side.model_prob) * 100
+            shift_color = "#0a7d2a" if abs(shift) < 3 else "#a8261f"
+            calib_line = (
+                f"  \n<span style='color:{shift_color};font-size:0.78rem;'>"
+                f"🧠 Calibrated YES prob: {cal_yes*100:.1f}% "
+                f"(raw model {d.yes_side.model_prob*100:.1f}%, shift {shift:+.1f}pp · {src})"
+                f"</span>"
+            )
+
         cols[0].markdown(
             f"**{d.title}**  \n"
             f"<span class='spy-meta'>Closes in {_countdown(d.horizon_seconds)} · "
             f"Spot ${d.spot_price:,.2f} ({d.spot_source}) · "
             f"σ {d.sigma_per_min*100:.3f}%/min</span>  \n"
             + (f"<span style='color:#2563eb;font-weight:600;font-size:0.85rem;'>"
-               f"📌 Bet: {d.bet_summary}</span>" if d.bet_summary else ""),
+               f"📌 Bet: {d.bet_summary}</span>" if d.bet_summary else "")
+            + calib_line,
             unsafe_allow_html=True,
         )
         cols[1].markdown(
@@ -230,6 +269,91 @@ def _strike_from_summary(summary: str) -> float:
         return float("inf")
 
 
+def _render_calibration_panel() -> None:
+    rep = _cached_calibration()
+    summary = st.session_state.get("kalshi_last_settle_summary") or {}
+    settled_label = ""
+    if summary and "settled" in summary:
+        settled_label = (
+            f" · last sweep: +{summary['settled']} settled, "
+            f"{summary['still_pending']} pending"
+        )
+
+    if rep.n_settled == 0:
+        st.info(
+            "🧠 **Calibration learning** — no settled markets yet. "
+            "Each time you load this page we snapshot the live decisions, "
+            "and once any market closes we back-fill the outcome to learn "
+            "from it. After ~30 settled markets, conviction scores become "
+            f"data-driven instead of pure GBM. (Snapshots in log: {rep.n_snapshots}{settled_label})"
+        )
+        return
+
+    with st.expander(
+        f"🧠 Calibration: {rep.n_settled} settled · {rep.n_snapshots} snapshots{settled_label}",
+        expanded=False,
+    ):
+        c1, c2, c3, c4 = st.columns(4)
+        if rep.brier_model is not None:
+            c1.metric(
+                "Model Brier",
+                f"{rep.brier_model:.3f}",
+                help="Lower is better. 0 = perfect, 0.25 = coin flip.",
+            )
+        if rep.brier_book is not None:
+            c2.metric(
+                "Book Brier",
+                f"{rep.brier_book:.3f}",
+                help="Kalshi orderbook's own Brier score on these settled markets.",
+            )
+        if rep.edge_vs_book_brier is not None:
+            beats = rep.beats_book
+            delta_label = "model wins" if beats else "book wins"
+            c3.metric(
+                "Edge vs book",
+                f"{rep.edge_vs_book_brier:+.3f}",
+                delta=delta_label,
+                help="Brier_book − Brier_model. Positive = model beats book.",
+            )
+        if rep.yes_recommend_hit_rate is not None or rep.no_recommend_hit_rate is not None:
+            yes_hr = rep.yes_recommend_hit_rate or 0.0
+            no_hr = rep.no_recommend_hit_rate or 0.0
+            c4.metric(
+                "Recommend hit rate",
+                f"YES {yes_hr*100:.0f}% · NO {no_hr*100:.0f}%",
+                help="When the dashboard said YES (or NO), did the bet win?",
+            )
+
+        if rep.decile_hit_rates:
+            import pandas as pd
+            df = pd.DataFrame(
+                rep.decile_hit_rates,
+                columns=["model_prob_bin", "actual_hit_rate", "n"],
+            )
+            df["perfect_calibration"] = df["model_prob_bin"]
+            st.markdown(
+                "**Calibration curve** — if the model is well-calibrated, "
+                "the actual hit-rate column should track the model_prob column. "
+                "Drift = bias the calibrator corrects."
+            )
+            st.dataframe(
+                df.style.format(
+                    {
+                        "model_prob_bin": "{:.0%}",
+                        "actual_hit_rate": "{:.1%}",
+                        "perfect_calibration": "{:.0%}",
+                        "n": "{:.0f}",
+                    }
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+
+        if st.button("🔄 Force settlement sweep now", key="force_settle_btn"):
+            _maybe_settle(force=True)
+            st.rerun()
+
+
 def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_ev: float, sort_mode: str) -> None:
     st.subheader(f"{symbol}")
     spot, err = _resolve_spot(symbol)
@@ -296,6 +420,15 @@ def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_
         st.markdown(f"#### {HORIZON_LABELS[horizon]}")
         decisions = score_event(markets, spot, min_edge=min_edge, min_ev=min_ev)
 
+        # Snapshot every active decision for the learning loop (deduped per
+        # ticker per minute, so this is cheap on auto-refresh).
+        try:
+            kcal.snapshot_decisions(decisions, symbol)
+        except Exception:
+            pass
+
+        calib = _cached_calibration()
+
         # Show actionable first, then top 8 passes for context. Sort within
         # each group by the user's chosen mode.
         actionable = _sort_decisions(
@@ -305,11 +438,11 @@ def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_
             [d for d in decisions if d.direction == "PASS"], sort_mode
         )
         for d in actionable:
-            _render_decision_row(d)
+            _render_decision_row(d, calib_report=calib)
         if passes:
             with st.expander(f"PASS markets ({len(passes)}) — book in line with model"):
                 for d in passes[:8]:
-                    _render_decision_row(d)
+                    _render_decision_row(d, calib_report=calib)
 
     if not any_rendered:
         st.info(f"No active {symbol} markets in the selected horizons right now.")
@@ -386,6 +519,8 @@ def main() -> None:
         return
 
     _kalshi_help()
+    _maybe_settle()
+    _render_calibration_panel()
 
     for symbol in symbols:
         _render_symbol(
