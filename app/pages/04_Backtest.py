@@ -19,15 +19,22 @@ def _forward_return(symbol: str, timeframe: str, ts: float, horizon_bars: int = 
         return None
     if df.empty:
         return None
-    target_ts = pd.Timestamp(ts, unit="s", tz="UTC") if is_crypto(symbol) else pd.Timestamp(ts, unit="s")
     try:
-        if df.index.tz is not None and target_ts.tz is None:
-            target_ts = target_ts.tz_localize("UTC")
-        if df.index.tz is None and target_ts.tz is not None:
-            target_ts = target_ts.tz_convert(None)
+        # Build a tz-aware UTC timestamp then match the index's tz
+        target_ts = pd.Timestamp(ts, unit="s", tz="UTC")
+        if df.index.tz is None:
+            target_ts = target_ts.tz_localize(None)
+        elif str(df.index.tz) != "UTC":
+            target_ts = target_ts.tz_convert(df.index.tz)
+
+        # Pandas 3.x: DatetimeIndex carries an explicit unit (ns/us/ms/s).
+        # searchsorted raises "Cannot losslessly convert units" if they differ.
+        idx_unit = getattr(df.index, "unit", "ns")
+        target_ts = target_ts.as_unit(idx_unit)
+
+        pos = df.index.searchsorted(target_ts)
     except Exception:
-        pass
-    pos = df.index.searchsorted(target_ts)
+        return None
     if pos >= len(df) - horizon_bars:
         return None
     entry = float(df["Close"].iloc[pos])

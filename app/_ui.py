@@ -28,6 +28,7 @@ def inject_global_css() -> None:
         <style>
         :root { --pill-radius: 999px; }
 
+        /* ── Core pills ── */
         .spy-pill {
             display: inline-flex;
             align-items: center;
@@ -38,6 +39,7 @@ def inject_global_css() -> None:
             font-weight: 600;
             line-height: 1.4;
             border: 1px solid rgba(0,0,0,0.06);
+            white-space: nowrap;
         }
         .spy-pill.dot::before {
             content: "";
@@ -47,11 +49,14 @@ def inject_global_css() -> None:
             background: currentColor;
             opacity: 0.85;
         }
+
+        /* ── Card headers ── */
         .spy-card-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 12px;
+            flex-wrap: wrap;
+            gap: 8px;
             margin-bottom: 4px;
         }
         .spy-card-header h3 {
@@ -64,6 +69,8 @@ def inject_global_css() -> None:
             font-size: 0.78rem;
             color: #6b7280;
         }
+
+        /* ── Skeleton loader ── */
         .spy-skeleton {
             display: block;
             width: 100%;
@@ -87,7 +94,69 @@ def inject_global_css() -> None:
             margin: 8px 0 6px 0;
         }
 
-        /* ── BUY NOW pulse animation ── */
+        /* ── Alert card ── */
+        .spy-alert-card {
+            padding: 12px 16px;
+            border-radius: 10px;
+            border: 1px solid rgba(127,127,127,0.18);
+            margin: 6px 0;
+        }
+        .spy-alert-top {
+            display: flex;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .spy-alert-symbol {
+            font-size: 1.1rem;
+            font-weight: 700;
+            flex: 1 1 auto;
+            min-width: 80px;
+        }
+        .spy-alert-pills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            align-items: center;
+        }
+        .spy-alert-metrics {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 6px 0;
+        }
+        .spy-alert-metric {
+            padding: 4px 10px;
+            border: 1px solid rgba(127,127,127,0.18);
+            border-radius: 8px;
+            min-width: 70px;
+            flex: 1 1 auto;
+        }
+        .spy-alert-metric .label { font-size: 0.72rem; color: #6b7280; }
+        .spy-alert-metric .value { font-size: 0.95rem; font-weight: 700; }
+        .spy-alert-body {
+            font-size: 0.82rem;
+            color: #94a3b8;
+            line-height: 1.5;
+            margin-top: 4px;
+        }
+
+        /* ── PnL strip — horizontal on desktop, wraps on mobile ── */
+        .spy-pnl-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 4px 0 8px 0;
+        }
+        .spy-pnl-cell {
+            flex: 1 1 100px;
+            padding: 8px 12px;
+            border: 1px solid rgba(127,127,127,0.22);
+            border-radius: 10px;
+        }
+
+        /* ── BUY / SELL pulse animations ── */
         @keyframes buy-pulse {
             0%   { box-shadow: 0 0 0 0   rgba(10,125,42,0.70); }
             50%  { box-shadow: 0 0 0 14px rgba(10,125,42,0.00); }
@@ -144,6 +213,114 @@ def inject_global_css() -> None:
             background: rgba(255,255,255,0.18);
             border-radius: 8px;
             opacity: 0.95;
+        }
+
+        /* ══════════════════════════════════════════════
+           MOBILE RESPONSIVE  (≤ 768 px)
+           ══════════════════════════════════════════════ */
+        @media (max-width: 768px) {
+
+            /* Tighter main padding */
+            .main .block-container {
+                padding-left: 0.75rem !important;
+                padding-right: 0.75rem !important;
+                padding-top: 0.75rem !important;
+                max-width: 100% !important;
+            }
+
+            /* Stack ALL Streamlit columns into a single column */
+            [data-testid="stHorizontalBlock"] {
+                flex-wrap: wrap !important;
+                gap: 0 !important;
+            }
+            [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+                flex: 1 1 100% !important;
+                min-width: 0 !important;
+                width: 100% !important;
+            }
+
+            /* Exception: allow 2-wide pairs (2 cols of roughly equal weight) */
+            [data-testid="stHorizontalBlock"].spy-2col > [data-testid="column"] {
+                flex: 1 1 48% !important;
+            }
+
+            /* Metric — reduce label size on very small screens */
+            [data-testid="stMetric"] label {
+                font-size: 0.75rem !important;
+            }
+            [data-testid="stMetricValue"] {
+                font-size: 1.1rem !important;
+            }
+
+            /* Signal banners — tighter on mobile */
+            .buy-now-banner, .sell-now-banner {
+                padding: 12px 14px !important;
+                border-radius: 10px !important;
+            }
+            .signal-banner-title {
+                font-size: 1.25rem !important;
+            }
+            .signal-banner-label {
+                font-size: 0.68rem !important;
+                letter-spacing: 1.2px !important;
+            }
+            .signal-banner-meta {
+                font-size: 0.82rem !important;
+            }
+
+            /* Pills — smaller on mobile */
+            .spy-pill {
+                font-size: 0.72rem !important;
+                padding: 2px 8px !important;
+            }
+
+            /* PnL strip — 2-up grid */
+            .spy-pnl-strip {
+                gap: 6px !important;
+            }
+            .spy-pnl-cell {
+                flex: 1 1 calc(50% - 6px) !important;
+                padding: 6px 10px !important;
+            }
+
+            /* Kalshi probability bars — fit labels */
+            .spy-meta {
+                font-size: 0.72rem !important;
+            }
+
+            /* Sidebar — reasonable width on small screens */
+            [data-testid="stSidebar"] {
+                min-width: 240px !important;
+                max-width: 80vw !important;
+            }
+
+            /* Tables and charts full-width */
+            [data-testid="stDataFrame"],
+            [data-testid="stPlotlyChart"] {
+                width: 100% !important;
+                overflow-x: auto !important;
+            }
+
+            /* Buttons — bigger tap targets */
+            .stButton > button {
+                min-height: 44px !important;
+                font-size: 0.9rem !important;
+                width: 100% !important;
+            }
+
+            /* Headings — scale down */
+            h1 { font-size: 1.6rem !important; }
+            h2 { font-size: 1.3rem !important; }
+            h3 { font-size: 1.1rem !important; }
+        }
+
+        @media (max-width: 480px) {
+            .signal-banner-title { font-size: 1.05rem !important; }
+            .buy-now-banner, .sell-now-banner {
+                padding: 10px 12px !important;
+            }
+            /* PnL strip — single column on very small phones */
+            .spy-pnl-cell { flex: 1 1 100% !important; }
         }
         </style>
         """,
