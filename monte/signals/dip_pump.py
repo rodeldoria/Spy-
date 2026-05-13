@@ -40,6 +40,36 @@ class Alert:
     contributions: list[dict[str, Any]] = field(default_factory=list)
     indicator_snapshot: dict[str, float] = field(default_factory=dict)
 
+    def reasoning(self) -> str:
+        """One-sentence "why this works" from contributions + snapshot.
+
+        Stitches the top 1-2 contributors into a human-readable bullet so the
+        user can read it on a phone notification.
+        """
+        if self.action is Action.HOLD or not self.contributions:
+            return ""
+        top = sorted(
+            self.contributions, key=lambda c: abs(c.get("score", 0)), reverse=True
+        )[:2]
+        snap = self.indicator_snapshot or {}
+        rsi_v = snap.get("rsi", 50.0)
+        bb_v = snap.get("bb_pctb", 0.5)
+        adx_v = snap.get("adx", 0.0)
+        direction = "long" if self.score > 0 else "short"
+        bits = [f"{direction} setup at {self.confidence:.0f}% confidence"]
+        names = {c["name"] for c in top}
+        if "RSI" in names and (rsi_v < 35 or rsi_v > 65):
+            bits.append(
+                "RSI extreme inside a trend → mean-reversion edge"
+                if rsi_v < 35
+                else "RSI hot but momentum confirms continuation"
+            )
+        if "BB %b" in names and (bb_v < 0.15 or bb_v > 0.85):
+            bits.append("price at the Bollinger band edge → breakout/reversion zone")
+        if "Regime" in names and adx_v >= 25:
+            bits.append("ADX > 25 confirms a directional regime, not chop")
+        return "; ".join(bits) + "."
+
 
 def _atr(df: pd.DataFrame, close: pd.Series, period: int = 14) -> float:
     high = df.get("High", close)

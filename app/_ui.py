@@ -177,6 +177,103 @@ def loading(message: str):
         yield
 
 
+_TIER_STYLE = {
+    "ACT_NOW":    ("#0a7d2a", "#d6f5dc", "🟢", "ACT NOW"),
+    "WATCH":      ("#a16207", "#fef9c3", "🟡", "Watch"),
+    "STAND_DOWN": ("#5b6470", "#f1f3f5", "⚪", "Stand down"),
+}
+
+
+def tier_pill(tier: str, confidence: float | None = None) -> str:
+    fg, bg, emoji, label = _TIER_STYLE.get(str(tier).upper(), _TIER_STYLE["STAND_DOWN"])
+    conf = f" · {confidence:.0f}%" if confidence is not None else ""
+    return (
+        f"<span class='spy-pill' style='color:{fg};background:{bg};"
+        f"font-size:0.9rem;padding:4px 12px;'>{emoji} {label}{conf}</span>"
+    )
+
+
+def act_now_banner(row: dict) -> None:
+    """Render a full-width sticky banner for an ACT_NOW signal."""
+    sym = row.get("symbol", "?")
+    action = str(row.get("action", "?")).replace("_", " ")
+    spot = float(row.get("spot", row.get("entry", 0)) or 0)
+    stop = float(row.get("stop", 0) or 0)
+    target = float(row.get("target", 0) or 0)
+    rr = float(row.get("rr", 0) or 0)
+    conf = float(row.get("confidence", 0) or 0)
+    reasoning = row.get("reasoning", "")
+    options = row.get("options_ticket")
+
+    st.markdown(
+        f"""
+        <div style='background:linear-gradient(90deg,#0a7d2a,#138a3a);
+                    color:#fff;padding:14px 18px;border-radius:12px;
+                    margin:8px 0 12px 0;box-shadow:0 2px 6px rgba(10,125,42,0.25);'>
+          <div style='font-size:0.78rem;letter-spacing:1.2px;opacity:0.85;'>🟢 ACT NOW · {conf:.0f}% conviction</div>
+          <div style='font-size:1.35rem;font-weight:800;margin:2px 0;'>{sym} {action} @ ${spot:,.2f}</div>
+          <div style='font-size:0.92rem;opacity:0.95;'>
+            Stop ${stop:,.2f} · Target ${target:,.2f} · R:R {rr:.2f}
+          </div>
+          <div style='font-size:0.85rem;margin-top:6px;opacity:0.9;'>{reasoning}</div>
+          {("<div style='margin-top:6px;font-size:0.85rem;'>Options: " +
+            options.get("side","") + " $" + str(options.get("strike",0)) + " " +
+            options.get("expiry","") + " · premium ~$" +
+            f"{options.get('premium',0):.2f}" + " · max risk $" +
+            f"{options.get('max_risk_per_contract',0):.0f}" + "/contract" +
+            "</div>") if options else ""}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def pnl_strip(daily: float, weekly: float, monthly: float, ytd: float) -> None:
+    """Render a four-up DoD / WoW / MoM / YTD realised-PnL strip."""
+    def _fmt(v: float) -> str:
+        sign = "+" if v >= 0 else "−"
+        return f"{sign}${abs(v):,.2f}"
+
+    def _color(v: float) -> str:
+        return "#0a7d2a" if v >= 0 else "#a8261f"
+
+    cells = [
+        ("Today", daily),
+        ("This week", weekly),
+        ("This month", monthly),
+        ("Year-to-date", ytd),
+    ]
+    html = "<div style='display:flex;gap:10px;margin:4px 0 8px 0;'>"
+    for label, v in cells:
+        html += (
+            f"<div style='flex:1;padding:8px 12px;border:1px solid rgba(127,127,127,0.22);"
+            f"border-radius:10px;'>"
+            f"<div class='spy-meta'>{label} P&amp;L</div>"
+            f"<div style='font-weight:700;color:{_color(v)};font-size:1.05rem;'>{_fmt(v)}</div>"
+            f"</div>"
+        )
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def drawdown_gauge(current_dd: float, max_dd: float = -0.10) -> None:
+    """Render a drawdown gauge with the 10% brake line annotated."""
+    pct = min(0.0, current_dd)
+    width = min(100.0, abs(pct / max_dd) * 100.0)
+    color = "#0a7d2a" if pct >= -0.03 else ("#a16207" if pct >= -0.07 else "#a8261f")
+    st.markdown(
+        f"""
+        <div style='margin:6px 0 10px 0;'>
+          <div class='spy-meta'>Drawdown · {pct*100:.1f}% (brake at {max_dd*100:.0f}%)</div>
+          <div style='background:rgba(127,127,127,0.12);border-radius:6px;height:10px;overflow:hidden;'>
+            <div style='width:{width:.1f}%;height:100%;background:{color};'></div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def target_progress(realised_pnl: float, target: float = 4000.0) -> None:
     """Render a 'realised $X / $4,000 this month' progress bar.
 

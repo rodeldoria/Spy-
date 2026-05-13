@@ -147,3 +147,103 @@ class PaperBook:
             cash=self._state["cash"],
             positions=positions_snap,
         )
+
+    # ---------- Time-bucketed P&L (realised) ----------
+
+    def _realised_since(self, since_ts: float) -> float:
+        """Sum of realised PnL from sell-side trades that closed since `since_ts`.
+
+        We rebuild a running average cost per symbol from the start of the
+        trade ledger; each sell crystallises (sell_price − avg_cost) × qty
+        as realised PnL on that trade. Sells timestamped >= since_ts count.
+        """
+        avg_cost: dict[str, float] = {}
+        held: dict[str, float] = {}
+        total = 0.0
+        for tr in self._state.get("trades", []):
+            sym = tr.get("symbol", "")
+            side = tr.get("side")
+            qty = float(tr.get("qty", 0))
+            price = float(tr.get("price", 0))
+            ts = float(tr.get("ts", 0.0))
+            if side == "buy":
+                prev_qty = held.get(sym, 0.0)
+                prev_avg = avg_cost.get(sym, 0.0)
+                new_qty = prev_qty + qty
+                if new_qty > 1e-9:
+                    avg_cost[sym] = (prev_qty * prev_avg + qty * price) / new_qty
+                held[sym] = new_qty
+            elif side == "sell":
+                basis = avg_cost.get(sym, price)
+                pnl = (price - basis) * qty
+                held[sym] = held.get(sym, 0.0) - qty
+                if ts >= since_ts:
+                    total += pnl
+        return total
+
+    def daily_pnl(self, now: float | None = None) -> float:
+        now = time.time() if now is None else now
+        return self._realised_since(now - 24 * 60 * 60)
+
+    def weekly_pnl(self, now: float | None = None) -> float:
+        now = time.time() if now is None else now
+        return self._realised_since(now - 7 * 24 * 60 * 60)
+
+    def monthly_pnl(self, now: float | None = None) -> float:
+        now = time.time() if now is None else now
+        return self._realised_since(now - 30 * 24 * 60 * 60)
+
+    # ---------- Drawdown ----------
+
+    def current_drawdown(
+        self,
+        prices: dict[str, float] | None = None,
+    ) -> float:
+        """Return drawdown as a negative decimal vs starting budget.
+
+        E.g. -0.07 = book is down 7% from starting capital. 0.0 when at or
+        above starting. We use `starting_budget` as the peak anchor — for a
+        rolling all-time-high drawdown, see `max_drawdown`.
+        """
+        prices = prices or {}
+        eq = self.mark_to_market(prices).equity
+        start = self.starting_budget()
+        if start <= 0:
+            return 0.0
+        if eq >= start:
+            return 0.0
+        return (eq - start) / start
+
+    def max_drawdown(self) -> float:
+        """Peak-to-trough drawdown using a synthetic equity curve.
+
+        Each trade timestamp is a curve sample. We approximate equity at
+        each point as (starting + cumulative realised PnL on closed legs).
+        Good enough for a UI gauge; not a Sharpe-grade calc.
+        """
+        peak = self.starting_budget()
+        eq = peak
+        trough_pct = 0.0
+        cash_by_sym: dict[str, float] = {}
+        qty_by_sym: dict[str, float] = {}
+        for tr in self._state.get("trades", []):
+            sym = tr.get("symbol", "")
+            side = tr.get("side")
+            qty = float(tr.get("qty", 0))
+            price = float(tr.get("price", 0))
+            if side == "buy":
+                cash_by_sym[sym] = cash_by_sym.get(sym, 0.0) - qty * price
+                qty_by_sym[sym] = qty_by_sym.get(sym, 0.0) + qty
+            else:
+                cash_by_sym[sym] = cash_by_sym.get(sym, 0.0) + qty * price
+                qty_by_sym[sym] = qty_by_sym.get(sym, 0.0) - qty
+            realised = sum(
+                cash_by_sym.get(s, 0.0)
+                for s, q in qty_by_sym.items()
+                if abs(q) < 1e-9
+            )
+            eq = self.starting_budget() + realised
+            peak = max(peak, eq)
+            if peak > 0:
+                trough_pct = min(trough_pct, (eq - peak) / peak)
+        return trough_pct

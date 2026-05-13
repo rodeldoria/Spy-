@@ -56,10 +56,14 @@ def main() -> None:
     )
 
     st.subheader("Integrations")
+    import os as _os
+
+    ntfy_configured = bool((_os.environ.get("MONTE_NTFY_TOPIC") or "").strip())
     integrations = [
         ("Anthropic (AI sentiment)", settings.anthropic_configured),
         ("Perplexity (live tape)", settings.perplexity_configured),
         ("Alpaca (SPY paper)", settings.alpaca_configured),
+        ("ntfy push", ntfy_configured),
     ]
     pills = " ".join(
         status_pill(name + (" · connected" if ok else " · not configured"),
@@ -67,6 +71,38 @@ def main() -> None:
         for name, ok in integrations
     )
     st.markdown(pills, unsafe_allow_html=True)
+
+    st.subheader("Push notifications (ntfy.sh)")
+    current_topic = _os.environ.get("MONTE_NTFY_TOPIC", "")
+    st.text_input(
+        "Topic name",
+        value=current_topic,
+        help="Pick something unguessable. Anyone with the topic can read your alerts.",
+        key="ntfy_topic",
+    )
+    st.caption(
+        "1. Install the **ntfy** app on your phone. 2. Subscribe to the same "
+        "topic. 3. Save the topic into your `.env` as `MONTE_NTFY_TOPIC=...` "
+        "and restart Streamlit. Test it with:"
+    )
+    st.code(
+        "python -c \"from monte.notify.ntfy import push; print(push('Test', "
+        "'Monte Edge is live', priority='high'))\"",
+        language="bash",
+    )
+
+    st.subheader("Goal plan")
+    cols = st.columns(3)
+    cols[0].metric(
+        "Start",
+        f"${float(_os.environ.get('MONTE_GOAL_START_USD','10000')):,.0f}",
+    )
+    cols[1].metric(
+        "Target",
+        f"${float(_os.environ.get('MONTE_GOAL_TARGET_USD','15000')):,.0f}",
+    )
+    cols[2].metric("Deadline", _os.environ.get("MONTE_GOAL_DEADLINE", "2026-11-13"))
+    st.caption("Edit `MONTE_GOAL_*` in your `.env` to change. The Goal Plan page reads these.")
 
 
 main()
