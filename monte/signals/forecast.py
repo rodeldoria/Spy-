@@ -59,6 +59,19 @@ class PriceProjection:
             return "down"
         return "flat"
 
+    @property
+    def target_pst(self) -> datetime:
+        """Target time in Pacific (fixed UTC-8 — close enough for label use)."""
+        return self.target_dt + timedelta(hours=-8)
+
+    def label_pst(self) -> str:
+        """Render target time as 'h:MMa PST' (e.g. '8:00a PST')."""
+        pst = self.target_pst
+        return pst.strftime("%-I:%M%p PST").replace("AM", "a").replace("PM", "p")
+
+    def label_utc(self) -> str:
+        return self.target_dt.strftime("%H:%M UTC")
+
 
 def _drift_vol(close: pd.Series, lookback: int = 96) -> tuple[float, float]:
     """Per-bar log-return drift μ and volatility σ.

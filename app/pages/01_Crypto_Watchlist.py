@@ -44,6 +44,8 @@ from monte.options import suggest_contract as suggest_option
 from monte.patterns.match import find_similar
 from monte.signals.dip_pump import detect
 from monte.signals.forecast import standard_horizons
+from monte.signals.patterns import detect_patterns
+from monte.learning import forecast_calibration
 from monte.signals.horizon import HORIZON_HOLD_HINT, HORIZON_LABEL
 from monte.strategies.signals import action_from_score
 from monte.strategy.monte_edge import EdgeTier, evaluate as edge_evaluate
@@ -93,6 +95,23 @@ def _render_forecast_grid(close, spot: float, timeframe: str, sym: str) -> None:
     if not projections:
         return
 
+    # ---- Pattern engine (pro-investor frameworks) ------------------------
+    try:
+        bundle = detect_patterns(close, spot)
+    except Exception:
+        bundle = None
+
+    # ---- Forecast accuracy learning loop ---------------------------------
+    # First: settle anything pending whose horizon time has passed, using
+    # the close series we already have in memory. Then snapshot today's
+    # projections so they can be settled later.
+    try:
+        forecast_calibration.settle_pending(sym, close)
+        forecast_calibration.snapshot_projections(sym, projections)
+        fc_report = forecast_calibration.report(sym)
+    except Exception:
+        fc_report = None
+
     cells = []
     for p in projections:
         if p.drift_pct > 0.05:
@@ -105,11 +124,10 @@ def _render_forecast_grid(close, spot: float, timeframe: str, sym: str) -> None:
             color = "#6b7280"
             arrow = "→"
 
-        target_str = p.target_dt.strftime("%H:%M UTC")
         cells.append(
             f"<div class='spy-fc-cell'>"
             f"<div class='spy-fc-label'>{p.label}</div>"
-            f"<div class='spy-fc-time'>by {target_str}</div>"
+            f"<div class='spy-fc-time'>by {p.label_pst()} · {p.label_utc()}</div>"
             f"<div class='spy-fc-price' style='color:{color};'>{arrow} ${p.median:,.2f}</div>"
             f"<div class='spy-fc-delta' style='color:{color};'>{p.drift_pct:+.2f}%</div>"
             f"<div class='spy-fc-range'>±${(p.upper - p.median):,.2f} ({p.range_pct:.2f}%)</div>"
@@ -128,6 +146,79 @@ def _render_forecast_grid(close, spot: float, timeframe: str, sym: str) -> None:
         f"<div class='spy-fc-grid'>{''.join(cells)}</div>",
         unsafe_allow_html=True,
     )
+
+    # ---- Pattern strip ---------------------------------------------------
+    if bundle and bundle.signals:
+        consensus_color = {
+            "bullish": "#0a7d2a",
+            "bearish": "#a8261f",
+            "mixed": "#6b7280",
+            "quiet": "#6b7280",
+        }[bundle.consensus]
+        chips = []
+        for s in bundle.top:
+            chip_color = {"bull": "#0a7d2a", "bear": "#a8261f", "neutral": "#6b7280"}[s.direction]
+            chips.append(
+                f"<span title=\"{s.note}\" "
+                f"style='display:inline-block;padding:3px 8px;margin:2px 4px 2px 0;"
+                f"border-radius:10px;background:rgba(107,114,128,0.10);"
+                f"font-size:0.78rem;color:{chip_color};font-weight:600;'>"
+                f"{s.emoji} {s.name} · {s.bias_pp:+.1f}pp</span>"
+            )
+        st.markdown(
+            f"<div style='margin:6px 0 4px 0;font-size:0.82rem;'>"
+            f"🧠 <strong>Patterns active</strong> · "
+            f"<span style='color:{consensus_color};font-weight:700;'>"
+            f"{bundle.consensus.upper()}</span> "
+            f"<span style='color:#888;'>(net {bundle.net_bias_pp:+.1f}pp tilt to up-side)</span><br/>"
+            f"{''.join(chips)}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    # ---- Forecast accuracy panel ----------------------------------------
+    if fc_report and fc_report.n_settled > 0:
+        with st.expander(
+            f"🎯 Forecast accuracy ({fc_report.n_settled} past predictions verified)",
+            expanded=False,
+        ):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric(
+                "Inside ±1σ band",
+                f"{(fc_report.hit_rate_within_band or 0)*100:.0f}%",
+                help="Honest: a calibrated 1σ band should hit ~68% of the time.",
+            )
+            c2.metric(
+                "Direction accuracy",
+                f"{(fc_report.direction_accuracy or 0)*100:.0f}%"
+                if fc_report.direction_accuracy is not None else "—",
+                help="When forecast said up, did it actually go up? (50% = coin flip)",
+            )
+            c3.metric(
+                "Mean abs error",
+                f"{fc_report.mean_abs_error_pct:.2f}%"
+                if fc_report.mean_abs_error_pct is not None else "—",
+            )
+            c4.metric(
+                "Bias",
+                f"{fc_report.mean_bias_pct:+.2f}%"
+                if fc_report.mean_bias_pct is not None else "—",
+                help="Positive = forecast tends to overshoot, negative = undershoot.",
+            )
+            if fc_report.by_label:
+                st.caption("Per-horizon breakdown:")
+                rows = []
+                for lbl, d in sorted(fc_report.by_label.items()):
+                    band = f"{(d['hit_band'] or 0)*100:.0f}%" if d.get("hit_band") is not None else "—"
+                    mae = f"{d['mae_pct']:.2f}%" if d.get("mae_pct") is not None else "—"
+                    dac = f"{(d['dir_acc'] or 0)*100:.0f}%" if d.get("dir_acc") is not None else "—"
+                    rows.append(f"- **{lbl}** ({d['n']} settled) — in band {band}, dir {dac}, MAE {mae}")
+                st.markdown("\n".join(rows))
+            st.caption(
+                "Predictions self-verify: each render checks past forecasts against "
+                "the actual close at that minute, then logs the outcome. Numbers grow "
+                "more reliable as the sample size builds."
+            )
 
 
 def _render_contributions(contribs: list[dict]) -> None:

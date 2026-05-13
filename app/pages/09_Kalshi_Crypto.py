@@ -573,6 +573,43 @@ def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_
     if not spot:
         return
 
+    # Pro-investor pattern strip: fetch a small candle history, run the
+    # pattern engine, and render the top patterns with their tilt.
+    try:
+        from monte.data.crypto import get_candles
+        from monte.signals.patterns import detect_patterns
+
+        candles = get_candles(symbol, "15m", lookback_bars=120)
+        if candles is not None and not candles.empty and "close" in candles.columns:
+            bundle = detect_patterns(candles["close"], spot.price)
+            if bundle.signals:
+                consensus_color = {
+                    "bullish": "#0a7d2a", "bearish": "#a8261f",
+                    "mixed": "#6b7280", "quiet": "#6b7280",
+                }[bundle.consensus]
+                chips = []
+                for s in bundle.top:
+                    cc = {"bull": "#0a7d2a", "bear": "#a8261f", "neutral": "#6b7280"}[s.direction]
+                    chips.append(
+                        f"<span title=\"{s.note}\" "
+                        f"style='display:inline-block;padding:3px 8px;margin:2px 4px 2px 0;"
+                        f"border-radius:10px;background:rgba(107,114,128,0.10);"
+                        f"font-size:0.78rem;color:{cc};font-weight:600;'>"
+                        f"{s.emoji} {s.name} {s.bias_pp:+.1f}pp</span>"
+                    )
+                st.markdown(
+                    f"<div style='margin:4px 0 8px 0;font-size:0.82rem;'>"
+                    f"🧠 <strong>Patterns on {symbol}</strong> · "
+                    f"<span style='color:{consensus_color};font-weight:700;'>"
+                    f"{bundle.consensus.upper()}</span> "
+                    f"<span style='color:#888;'>(net {bundle.net_bias_pp:+.1f}pp tilt to up-side)</span><br/>"
+                    f"{''.join(chips)}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+    except Exception:
+        pass
+
     try:
         markets_by_horizon = _fetch_markets(symbol, horizons)
     except Exception as e:
