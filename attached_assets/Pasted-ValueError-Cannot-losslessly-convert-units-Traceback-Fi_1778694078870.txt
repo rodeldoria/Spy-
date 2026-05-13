@@ -1,0 +1,28 @@
+ValueError: Cannot losslessly convert units
+Traceback:
+File "/home/runner/workspace/app/pages/04_Backtest.py", line 112, in <module>
+    main()
+File "/home/runner/workspace/app/pages/04_Backtest.py", line 56, in main
+    fwd = _forward_return(r.get("symbol"), r.get("timeframe"), r.get("ts", 0), horizon)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/app/pages/04_Backtest.py", line 30, in _forward_return
+    pos = df.index.searchsorted(target_ts)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/pandas/core/base.py", line 1612, in searchsorted
+    return values.searchsorted(value, side=side, sorter=sorter)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/pandas/core/arrays/_mixins.py", line 255, in searchsorted
+    npvalue = self._validate_setitem_value(value)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/pandas/core/arrays/datetimelike.py", line 741, in _validate_setitem_value
+    return self._validate_scalar(value, allow_listlike=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/pandas/core/arrays/datetimelike.py", line 638, in _validate_scalar
+    return self._unbox_scalar(value)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/pandas/core/arrays/datetimes.py", line 549, in _unbox_scalar
+    return value.as_unit(self.unit, round_ok=False).asm8
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "pandas/_libs/tslibs/timestamps.pyx", line 1542, in pandas._libs.tslibs.timestamps._Timestamp.as_unit
+File "pandas/_libs/tslibs/timestamps.pyx", line 1495, in pandas._libs.tslibs.timestamps._Timestamp._as_creso
+File "pandas/_libs/tslibs/np_datetime.pyx", line 676, in pandas._libs.tslibs.np_datetime.convert_reso

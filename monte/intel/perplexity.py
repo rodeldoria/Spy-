@@ -78,10 +78,12 @@ def _load_cache(symbol: str, action: str) -> NewsBrief | None:
     return NewsBrief(**payload)
 
 
-def _save_cache(brief: NewsBrief) -> None:
+def _save_cache(brief: NewsBrief, action: str) -> None:
+    if brief.error or brief.sentiment == "unknown":
+        return
     try:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _cache_path(brief.symbol, brief.sentiment).write_text(
+        _cache_path(brief.symbol, action).write_text(
             json.dumps(brief.__dict__)
         )
     except OSError:
@@ -221,7 +223,7 @@ def fetch_news(symbol: str, action: str = "BUY", *, model: str | None = None) ->
         )
 
     brief = _parse_response(symbol, content)
-    _save_cache(brief)
+    _save_cache(brief, action)
     return brief
 
 

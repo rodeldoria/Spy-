@@ -32,6 +32,7 @@ from app.kalshi import (
     score_event,
 )
 from app.kalshi.spot import SpotQuote, default_sigma_per_min, manual_quote
+from monte.learning import kalshi_calibration as kcal
 
 SYMBOLS = ["BTC", "ETH", "SOL"]
 HORIZONS = ["15min", "hourly", "daily", "weekly"]
@@ -53,9 +54,31 @@ def _fetch_markets(symbol: str, horizons: tuple[str, ...]) -> dict[str, list[Kal
     return _client().crypto_markets(symbol, horizons=horizons)
 
 
-@st.cache_data(ttl=8, show_spinner=False)
+@st.cache_data(ttl=2, show_spinner=False)
 def _fetch_spot(symbol: str) -> SpotQuote:
     return get_spot_price(symbol)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def _cached_calibration():
+    """Reload calibration report at most every 15s."""
+    return kcal.calibration_report()
+
+
+def _maybe_settle(force: bool = False) -> None:
+    """Run the settlement back-fill at most once every 5 minutes."""
+    last = st.session_state.get("kalshi_last_settle_ts", 0)
+    now = time.time()
+    if not force and (now - last) < 300:
+        return
+    st.session_state["kalshi_last_settle_ts"] = now
+    try:
+        summary = kcal.settle_pending(_client(), max_lookups=10)
+        st.session_state["kalshi_last_settle_summary"] = summary
+        # Bust the calibration cache so the new outcome appears immediately
+        _cached_calibration.clear()
+    except Exception as e:
+        st.session_state["kalshi_last_settle_summary"] = {"error": str(e)}
 
 
 def _direction_pill(direction: str, confidence: float) -> str:
@@ -65,11 +88,65 @@ def _direction_pill(direction: str, confidence: float) -> str:
         "PASS": ("#5b6470", "#f1f3f5", "⚪"),
     }
     fg, bg, emoji = palette.get(direction, palette["PASS"])
+    if direction == "PASS":
+        # PASS confidence = how close book is to model. Don't show as a %
+        # (people read it as "44% chance of YES"). Show as a qualitative label.
+        if confidence >= 75:
+            label = "book ≈ model"
+        elif confidence >= 40:
+            label = "no clear edge"
+        else:
+            label = "near threshold"
+        suffix = f" · {label}"
+    else:
+        suffix = f" · {confidence:.0f}% conviction"
     return (
         f"<span class='spy-pill' style='color:{fg};background:{bg};"
-        f"font-size:0.95rem;padding:4px 12px;font-weight:700;'>"
-        f"{emoji} {direction} · {confidence:.0f}%</span>"
+        f"font-size:0.95rem;padding:4px 12px;font-weight:700;' "
+        f"title='Conviction is a logistic of edge size: 4pp=50%, 8pp=~85%, 12pp=90%, 20pp≈99%.'>"
+        f"{emoji} {direction}{suffix}</span>"
     )
+
+
+def _kalshi_help() -> None:
+    with st.expander("ℹ️ How to read these signals (EV · Kelly · Conviction)"):
+        st.markdown(
+            """
+**What each market is asking** — Each row shows a binary contract: YES pays $1 if the
+condition resolves true, NO pays $1 if it resolves false. The **Bet:** line under
+each title spells out exactly what YES means in plain English (e.g. "BTC ≥ $80,000
+at 12:00 UTC").
+
+**The model** — A driftless GBM (geometric Brownian motion) fed with realised 1-minute
+volatility. It computes the *fair* probability of YES given just spot price and vol.
+This is a **benchmark, not a prediction** — its job is to flag when Kalshi's book
+disagrees with vol-implied fair value.
+
+**Edge** — `model_prob − implied_prob` in percentage points. 4pp is our default
+floor; below that, model error swamps the signal.
+
+**EV (¢ per $1)** — Expected return per $1 staked. `EV = model_prob × payout − 1`.
+- **EV +5¢/$1 or higher** = strong; covers fees, slippage, and some model error
+- **EV +2 to +5¢** = marginal; only take if Kelly is also small (1-3%)
+- **EV ≤ +2¢** = skip — usually noise
+
+**Kelly fraction** — Optimal % of bankroll to risk on this bet, capped at 25%
+(full Kelly is too aggressive; the model has its own error bars).
+- **Kelly < 1%** = skip even if EV is positive (model can't tell sides apart)
+- **Kelly 2-8%** = normal scale-in size
+- **Kelly 10-25%** = high conviction; still cap at 5-10% of bankroll in practice
+
+**Conviction % scale (for YES/NO only)** — Logistic of edge size:
+- **< 50%** = weak (edge ~4pp); maybe size at 0.25× Kelly
+- **50–75%** = moderate (edge 4–8pp)
+- **75–90%** = strong (edge 8–12pp)
+- **> 90%** = high (edge ≥ 12pp); rare, often signals stale book
+
+**PASS rows** — The book matches the model within tolerance, so there's no edge
+worth taking. The qualifier ("book ≈ model" / "near threshold") tells you how close
+to the edge floor — *not* a probability.
+            """
+        )
 
 
 def _countdown(seconds: float) -> str:
@@ -85,14 +162,33 @@ def _countdown(seconds: float) -> str:
     return f"{s // 86400}d {(s % 86400) // 3600:02d}h"
 
 
-def _render_decision_row(d: Decision) -> None:
+def _render_decision_row(d: Decision, calib_report=None) -> None:
     with st.container(border=True):
         cols = st.columns([3.0, 1.4, 1.4, 1.6])
+
+        # Calibration line: show what the model probability becomes after
+        # learning from past settled markets, when we have enough data.
+        calib_line = ""
+        if calib_report and calib_report.n_settled >= 30:
+            cal_yes, src = kcal.calibrate_prob(d.yes_side.model_prob)
+            shift = (cal_yes - d.yes_side.model_prob) * 100
+            shift_color = "#0a7d2a" if abs(shift) < 3 else "#a8261f"
+            calib_line = (
+                f"  \n<span style='color:{shift_color};font-size:0.78rem;'>"
+                f"🧠 Calibrated YES prob: {cal_yes*100:.1f}% "
+                f"(raw model {d.yes_side.model_prob*100:.1f}%, shift {shift:+.1f}pp · {src})"
+                f"</span>"
+            )
+
         cols[0].markdown(
             f"**{d.title}**  \n"
-            f"<span class='spy-meta'>Closes in {_countdown(d.horizon_seconds)} · "
-            f"Spot ${d.spot_price:,.2f} ({d.spot_source}) · "
-            f"σ {d.sigma_per_min*100:.3f}%/min</span>",
+            f"<span class='spy-meta'>Closes in <span class='kalshi-countdown' "
+            f"data-close-ts='{d.close_time:.0f}'>{_countdown(d.horizon_seconds)}</span> · "
+            f"Spot <span class='kalshi-spot-flash'>${d.spot_price:,.2f}</span> "
+            f"({d.spot_source}) · σ {d.sigma_per_min*100:.3f}%/min</span>  \n"
+            + (f"<span style='color:#2563eb;font-weight:600;font-size:0.85rem;'>"
+               f"📌 Bet: {d.bet_summary}</span>" if d.bet_summary else "")
+            + calib_line,
             unsafe_allow_html=True,
         )
         cols[1].markdown(
@@ -144,7 +240,222 @@ def _resolve_spot(symbol: str) -> tuple[SpotQuote | None, str | None]:
         return None, str(e)
 
 
-def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_ev: float) -> None:
+def _sort_decisions(decisions: list[Decision], sort_mode: str) -> list[Decision]:
+    if sort_mode == "Closing soonest":
+        return sorted(decisions, key=lambda d: d.horizon_seconds)
+    if sort_mode == "Closing latest":
+        return sorted(decisions, key=lambda d: -d.horizon_seconds)
+    if sort_mode == "Strike low → high":
+        # Use the YES side's implied prob as a proxy when no strike is parseable.
+        return sorted(
+            decisions,
+            key=lambda d: (
+                # Pull strike from bet_summary if it contains a $ amount.
+                _strike_from_summary(d.bet_summary),
+                d.horizon_seconds,
+            ),
+        )
+    # Default: best edge first
+    return sorted(decisions, key=lambda d: -max(d.yes_side.edge, d.no_side.edge))
+
+
+def _inject_live_countdown_js() -> None:
+    """Tick every countdown span and pulse spot prices in the user's browser.
+
+    Streamlit only re-renders on auto-refresh, but countdown seconds need to
+    update every frame to feel "alive". This script runs in a 0-height iframe
+    component and reaches into the parent document to update text from each
+    `.kalshi-countdown` span's `data-close-ts` attribute. Spot-price spans
+    get a brief flash class on each Streamlit refresh so the eye catches the
+    change like a Robinhood ticker.
+    """
+    import streamlit.components.v1 as components
+
+    components.html(
+        """
+        <style>
+          @keyframes kalshi-flash {
+            0%   { background: rgba(34,197,94,0.45); }
+            100% { background: transparent; }
+          }
+          .kalshi-spot-flash-pulse {
+            animation: kalshi-flash 0.9s ease-out;
+            border-radius: 4px;
+            padding: 0 3px;
+          }
+        </style>
+        <script>
+        (function() {
+          const root = window.parent.document;
+
+          function fmt(secs) {
+            if (secs <= 0) return "closed";
+            const s = Math.floor(secs);
+            if (s < 60) return s + "s";
+            if (s < 3600) {
+              const m = Math.floor(s / 60);
+              const r = s % 60;
+              return m + "m " + (r < 10 ? "0" : "") + r + "s";
+            }
+            if (s < 86400) {
+              const h = Math.floor(s / 3600);
+              const m = Math.floor((s % 3600) / 60);
+              return h + "h " + (m < 10 ? "0" : "") + m + "m";
+            }
+            const d = Math.floor(s / 86400);
+            const h = Math.floor((s % 86400) / 3600);
+            return d + "d " + (h < 10 ? "0" : "") + h + "h";
+          }
+
+          function tick() {
+            const now = Date.now() / 1000;
+            const els = root.querySelectorAll(".kalshi-countdown");
+            els.forEach(function(el) {
+              const ts = parseFloat(el.dataset.closeTs);
+              if (!ts) return;
+              const remaining = ts - now;
+              const txt = fmt(remaining);
+              if (el.textContent !== txt) {
+                el.textContent = txt;
+                if (remaining > 0 && remaining < 60) {
+                  el.style.color = "#dc2626";
+                  el.style.fontWeight = "700";
+                } else if (remaining > 0 && remaining < 300) {
+                  el.style.color = "#f59e0b";
+                  el.style.fontWeight = "600";
+                }
+              }
+            });
+          }
+
+          function flashSpots() {
+            const spots = root.querySelectorAll(".kalshi-spot-flash");
+            spots.forEach(function(el) {
+              const prev = el.dataset.prevText;
+              const cur = el.textContent;
+              if (prev && prev !== cur) {
+                el.classList.remove("kalshi-spot-flash-pulse");
+                void el.offsetWidth;
+                el.classList.add("kalshi-spot-flash-pulse");
+              }
+              el.dataset.prevText = cur;
+            });
+          }
+
+          if (window.parent.__kalshiTickInterval) {
+            clearInterval(window.parent.__kalshiTickInterval);
+          }
+          if (window.parent.__kalshiFlashInterval) {
+            clearInterval(window.parent.__kalshiFlashInterval);
+          }
+          window.parent.__kalshiTickInterval = setInterval(tick, 250);
+          window.parent.__kalshiFlashInterval = setInterval(flashSpots, 800);
+          tick();
+          flashSpots();
+        })();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _strike_from_summary(summary: str) -> float:
+    import re
+    m = re.search(r"\$([\d,]+(?:\.\d+)?)", summary or "")
+    if not m:
+        return float("inf")
+    try:
+        return float(m.group(1).replace(",", ""))
+    except ValueError:
+        return float("inf")
+
+
+def _render_calibration_panel() -> None:
+    rep = _cached_calibration()
+    summary = st.session_state.get("kalshi_last_settle_summary") or {}
+    settled_label = ""
+    if summary and "settled" in summary:
+        settled_label = (
+            f" · last sweep: +{summary['settled']} settled, "
+            f"{summary['still_pending']} pending"
+        )
+
+    if rep.n_settled == 0:
+        st.info(
+            "🧠 **Calibration learning** — no settled markets yet. "
+            "Each time you load this page we snapshot the live decisions, "
+            "and once any market closes we back-fill the outcome to learn "
+            "from it. After ~30 settled markets, conviction scores become "
+            f"data-driven instead of pure GBM. (Snapshots in log: {rep.n_snapshots}{settled_label})"
+        )
+        return
+
+    with st.expander(
+        f"🧠 Calibration: {rep.n_settled} settled · {rep.n_snapshots} snapshots{settled_label}",
+        expanded=False,
+    ):
+        c1, c2, c3, c4 = st.columns(4)
+        if rep.brier_model is not None:
+            c1.metric(
+                "Model Brier",
+                f"{rep.brier_model:.3f}",
+                help="Lower is better. 0 = perfect, 0.25 = coin flip.",
+            )
+        if rep.brier_book is not None:
+            c2.metric(
+                "Book Brier",
+                f"{rep.brier_book:.3f}",
+                help="Kalshi orderbook's own Brier score on these settled markets.",
+            )
+        if rep.edge_vs_book_brier is not None:
+            beats = rep.beats_book
+            delta_label = "model wins" if beats else "book wins"
+            c3.metric(
+                "Edge vs book",
+                f"{rep.edge_vs_book_brier:+.3f}",
+                delta=delta_label,
+                help="Brier_book − Brier_model. Positive = model beats book.",
+            )
+        if rep.yes_recommend_hit_rate is not None or rep.no_recommend_hit_rate is not None:
+            yes_hr = rep.yes_recommend_hit_rate or 0.0
+            no_hr = rep.no_recommend_hit_rate or 0.0
+            c4.metric(
+                "Recommend hit rate",
+                f"YES {yes_hr*100:.0f}% · NO {no_hr*100:.0f}%",
+                help="When the dashboard said YES (or NO), did the bet win?",
+            )
+
+        if rep.decile_hit_rates:
+            import pandas as pd
+            df = pd.DataFrame(
+                rep.decile_hit_rates,
+                columns=["model_prob_bin", "actual_hit_rate", "n"],
+            )
+            df["perfect_calibration"] = df["model_prob_bin"]
+            st.markdown(
+                "**Calibration curve** — if the model is well-calibrated, "
+                "the actual hit-rate column should track the model_prob column. "
+                "Drift = bias the calibrator corrects."
+            )
+            st.dataframe(
+                df.style.format(
+                    {
+                        "model_prob_bin": "{:.0%}",
+                        "actual_hit_rate": "{:.1%}",
+                        "perfect_calibration": "{:.0%}",
+                        "n": "{:.0f}",
+                    }
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+
+        if st.button("🔄 Force settlement sweep now", key="force_settle_btn"):
+            _maybe_settle(force=True)
+            st.rerun()
+
+
+def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_ev: float, sort_mode: str) -> None:
     st.subheader(f"{symbol}")
     spot, err = _resolve_spot(symbol)
     spot_col, override_col = st.columns([2.4, 1.6])
@@ -210,15 +521,29 @@ def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_
         st.markdown(f"#### {HORIZON_LABELS[horizon]}")
         decisions = score_event(markets, spot, min_edge=min_edge, min_ev=min_ev)
 
-        # Show actionable first, then top 5 passes for context.
-        actionable = [d for d in decisions if d.direction != "PASS"]
-        passes = [d for d in decisions if d.direction == "PASS"]
+        # Snapshot every active decision for the learning loop (deduped per
+        # ticker per minute, so this is cheap on auto-refresh).
+        try:
+            kcal.snapshot_decisions(decisions, symbol)
+        except Exception:
+            pass
+
+        calib = _cached_calibration()
+
+        # Show actionable first, then top 8 passes for context. Sort within
+        # each group by the user's chosen mode.
+        actionable = _sort_decisions(
+            [d for d in decisions if d.direction != "PASS"], sort_mode
+        )
+        passes = _sort_decisions(
+            [d for d in decisions if d.direction == "PASS"], sort_mode
+        )
         for d in actionable:
-            _render_decision_row(d)
+            _render_decision_row(d, calib_report=calib)
         if passes:
             with st.expander(f"PASS markets ({len(passes)}) — book in line with model"):
                 for d in passes[:8]:
-                    _render_decision_row(d)
+                    _render_decision_row(d, calib_report=calib)
 
     if not any_rendered:
         st.info(f"No active {symbol} markets in the selected horizons right now.")
@@ -259,10 +584,23 @@ def main() -> None:
             help="Minimum expected return in cents per $1 staked. Acts as a "
             "fee + slippage cushion.",
         )
+        sort_mode = st.selectbox(
+            "Sort markets by",
+            [
+                "Best edge",
+                "Closing soonest",
+                "Closing latest",
+                "Strike low → high",
+            ],
+            index=0,
+            help="How to order markets within each horizon group.",
+        )
         refresh_secs = st.select_slider(
-            "Auto-refresh",
-            options=[5, 10, 30, 60, 120, 300],
-            value=30,
+            "Auto-refresh (book + spot)",
+            options=[3, 5, 10, 30, 60, 120, 300],
+            value=5,
+            help="How often to re-pull the Kalshi book and crypto spot. "
+            "Countdown seconds tick every 250ms client-side regardless.",
         )
         st_autorefresh(interval=refresh_secs * 1000, key="kalshi_refresh")
 
@@ -283,12 +621,18 @@ def main() -> None:
         st.warning("Pick at least one symbol and one horizon in the sidebar.")
         return
 
+    _kalshi_help()
+    _maybe_settle()
+    _render_calibration_panel()
+    _inject_live_countdown_js()
+
     for symbol in symbols:
         _render_symbol(
             symbol,
             tuple(horizons),
             min_edge=min_edge_pp / 100.0,
             min_ev=min_ev_cents / 100.0,
+            sort_mode=sort_mode,
         )
 
 

@@ -23,17 +23,12 @@ _ACTION_STYLE = {
 
 
 def inject_global_css() -> None:
-    """Inject a small CSS bundle so the app stops looking like the default demo.
-
-    Idempotent — calling it multiple times in a session is fine because
-    Streamlit only renders the most recent block.
-    """
     st.markdown(
         """
         <style>
-        :root {
-            --pill-radius: 999px;
-        }
+        :root { --pill-radius: 999px; }
+
+        /* ── Core pills ── */
         .spy-pill {
             display: inline-flex;
             align-items: center;
@@ -44,6 +39,7 @@ def inject_global_css() -> None:
             font-weight: 600;
             line-height: 1.4;
             border: 1px solid rgba(0,0,0,0.06);
+            white-space: nowrap;
         }
         .spy-pill.dot::before {
             content: "";
@@ -53,11 +49,14 @@ def inject_global_css() -> None:
             background: currentColor;
             opacity: 0.85;
         }
+
+        /* ── Card headers ── */
         .spy-card-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 12px;
+            flex-wrap: wrap;
+            gap: 8px;
             margin-bottom: 4px;
         }
         .spy-card-header h3 {
@@ -70,6 +69,8 @@ def inject_global_css() -> None:
             font-size: 0.78rem;
             color: #6b7280;
         }
+
+        /* ── Skeleton loader ── */
         .spy-skeleton {
             display: block;
             width: 100%;
@@ -210,7 +211,6 @@ def status_pill(text: str, kind: str = "info") -> str:
 
 
 def freshness_pill(last_ts) -> str:
-    """Render an 'updated Xs ago' pill from a timestamp / Timestamp / datetime."""
     if last_ts is None:
         return status_pill("no data", "err")
     if isinstance(last_ts, pd.Timestamp):
@@ -259,7 +259,6 @@ def render_skeleton(rows: int = 3) -> None:
 
 @contextmanager
 def loading(message: str):
-    """Spinner that always shows even when work is fast — feels less demo-y."""
     with st.spinner(message):
         yield
 
@@ -280,8 +279,8 @@ def tier_pill(tier: str, confidence: float | None = None) -> str:
     )
 
 
-def act_now_banner(row: dict) -> None:
-    """Render a full-width sticky banner for an ACT_NOW signal."""
+def signal_banner(row: dict) -> None:
+    """Pulsing full-width BUY NOW / SELL NOW banner for ACT_NOW signals."""
     sym = row.get("symbol", "?")
     action = str(row.get("action", "?")).replace("_", " ")
     spot = float(row.get("spot", row.get("entry", 0)) or 0)
@@ -289,34 +288,165 @@ def act_now_banner(row: dict) -> None:
     target = float(row.get("target", 0) or 0)
     rr = float(row.get("rr", 0) or 0)
     conf = float(row.get("confidence", 0) or 0)
+    horizon = str(row.get("horizon", "")).replace("_", " ").title()
     reasoning = row.get("reasoning", "")
     options = row.get("options_ticket")
+    is_buy = "BUY" in str(row.get("action", "")).upper()
+    cls = "buy-now-banner" if is_buy else "sell-now-banner"
+    icon = "🚀" if is_buy else "🔻"
+
+    opts_html = ""
+    if options and not options.get("is_crypto_note"):
+        opts_html = (
+            f"<div class='signal-banner-options'>"
+            f"📈 Options: <strong>{options.get('side','')} ${options.get('strike',0):.0f}</strong> "
+            f"exp. {options.get('expiry','')} · "
+            f"premium ~<strong>${options.get('premium',0):.2f}</strong> · "
+            f"max risk <strong>${options.get('max_risk_per_contract',0):.0f}</strong>/contract"
+            f"</div>"
+        )
+    elif options and options.get("is_crypto_note"):
+        opts_html = (
+            f"<div class='signal-banner-options'>"
+            f"💡 {options.get('rationale','')}"
+            f"</div>"
+        )
 
     st.markdown(
         f"""
-        <div style='background:linear-gradient(90deg,#0a7d2a,#138a3a);
-                    color:#fff;padding:14px 18px;border-radius:12px;
-                    margin:8px 0 12px 0;box-shadow:0 2px 6px rgba(10,125,42,0.25);'>
-          <div style='font-size:0.78rem;letter-spacing:1.2px;opacity:0.85;'>🟢 ACT NOW · {conf:.0f}% conviction</div>
-          <div style='font-size:1.35rem;font-weight:800;margin:2px 0;'>{sym} {action} @ ${spot:,.2f}</div>
-          <div style='font-size:0.92rem;opacity:0.95;'>
-            Stop ${stop:,.2f} · Target ${target:,.2f} · R:R {rr:.2f}
+        <div class='{cls}'>
+          <div class='signal-banner-label'>{icon} ACT NOW · {conf:.0f}% conviction · {horizon}</div>
+          <div class='signal-banner-title'>{sym} {action} @ ${spot:,.2f}</div>
+          <div class='signal-banner-meta'>
+            Stop <strong>${stop:,.2f}</strong> · Target <strong>${target:,.2f}</strong> · R:R <strong>{rr:.2f}</strong>
           </div>
-          <div style='font-size:0.85rem;margin-top:6px;opacity:0.9;'>{reasoning}</div>
-          {("<div style='margin-top:6px;font-size:0.85rem;'>Options: " +
-            options.get("side","") + " $" + str(options.get("strike",0)) + " " +
-            options.get("expiry","") + " · premium ~$" +
-            f"{options.get('premium',0):.2f}" + " · max risk $" +
-            f"{options.get('max_risk_per_contract',0):.0f}" + "/contract" +
-            "</div>") if options else ""}
+          {f"<div class='signal-banner-why'>💡 {reasoning}</div>" if reasoning else ""}
+          {opts_html}
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
+def act_now_banner(row: dict) -> None:
+    """Alias kept for backward compatibility."""
+    signal_banner(row)
+
+
+def signal_guide() -> None:
+    """Render a collapsible signal-tier reference card for new users."""
+    tiers = [
+        {
+            "label": "ACT NOW",
+            "color": "#0a7d2a",
+            "bg": "rgba(10,125,42,0.10)",
+            "border": "#0a7d2a",
+            "icon": "🟢",
+            "headline": "Enter now — high-conviction setup",
+            "body": (
+                "4 or more indicators agree, confidence ≥ 75%, and macro is on-side. "
+                "This is the window you've been waiting for. The signal shows an exact "
+                "<strong>entry price</strong>, a <strong>stop-loss</strong> (where you exit if wrong), "
+                "and a <strong>target</strong> (where you take profit). "
+                "Size your position using the Budget page — never risk more than the suggested amount. "
+                "<em>Move quickly — ACT NOW windows are typically short.</em>"
+            ),
+            "do": "Open a paper trade. Note entry, stop, target.",
+            "dont": "Risk more than the suggested size. Chase if price has already moved far.",
+        },
+        {
+            "label": "WATCH",
+            "color": "#b45309",
+            "bg": "rgba(180,83,9,0.10)",
+            "border": "#b45309",
+            "icon": "🟡",
+            "headline": "Setup forming — prepare but wait",
+            "body": (
+                "3+ indicators are aligned and confidence ≥ 60%, but the signal isn't fully "
+                "confirmed yet. Think of this as the <strong>pre-game</strong>: conditions are "
+                "good but you haven't seen the starting gun. Review the stop/target levels, "
+                "decide your position size, and have capital ready. <em>Do not enter yet.</em>"
+            ),
+            "do": "Note the symbol, set a price alert, calculate your risk.",
+            "dont": "Enter early — the setup may reverse before confirmation.",
+        },
+        {
+            "label": "HOLD",
+            "color": "#4b5563",
+            "bg": "rgba(75,85,99,0.10)",
+            "border": "#6b7280",
+            "icon": "⬜",
+            "headline": "No edge detected — stay flat",
+            "body": (
+                "Indicators are mixed or near-neutral. There is no clear directional signal. "
+                "If you are <strong>not in this trade</strong>: stay out. "
+                "If you are <strong>already in this trade</strong>: HOLD does <em>not</em> mean sell — "
+                "it means no new information has arrived. Manage your existing stop and target."
+            ),
+            "do": "Hold existing positions. Manage stops.",
+            "dont": "Open new positions. HOLD is not a buy or sell instruction.",
+        },
+        {
+            "label": "STAND DOWN",
+            "color": "#991b1b",
+            "bg": "rgba(153,27,27,0.10)",
+            "border": "#dc2626",
+            "icon": "⚪",
+            "headline": "Conditions are against you — wait",
+            "body": (
+                "Fewer than 3 indicators agree, macro is misaligned (SPY below its 200-day, "
+                "broad selling pressure), or confidence is too low. "
+                "The market environment works against a clean trade right now. "
+                "<strong>Do not open new positions.</strong> This is the system protecting you "
+                "from low-probability setups. Patience here is a position."
+            ),
+            "do": "Watch and wait. Re-scan when conditions shift.",
+            "dont": "Force a trade. STAND DOWN is a protection, not a failure.",
+        },
+    ]
+
+    with st.expander("🚦 Signal Guide — what do the tiers mean?", expanded=False):
+        st.markdown(
+            "<p style='color:var(--text-muted,#888);font-size:0.85rem;margin-bottom:0.75rem;'>"
+            "New here? This guide explains every signal level the system can show you."
+            "</p>",
+            unsafe_allow_html=True,
+        )
+        for t in tiers:
+            st.markdown(
+                f"""
+                <div style='
+                    border-left:4px solid {t["border"]};
+                    background:{t["bg"]};
+                    border-radius:8px;
+                    padding:12px 16px;
+                    margin-bottom:10px;
+                '>
+                  <div style='display:flex;align-items:center;gap:8px;margin-bottom:4px;'>
+                    <span style='font-size:1.1rem;'>{t["icon"]}</span>
+                    <strong style='color:{t["color"]};font-size:1rem;letter-spacing:0.04em;'>{t["label"]}</strong>
+                    <span style='color:#888;font-size:0.82rem;'>— {t["headline"]}</span>
+                  </div>
+                  <div style='font-size:0.88rem;line-height:1.55;margin-bottom:6px;'>{t["body"]}</div>
+                  <div style='display:flex;gap:24px;font-size:0.82rem;margin-top:4px;'>
+                    <span><strong style='color:#0a7d2a;'>✓ Do:</strong> {t["do"]}</span>
+                    <span><strong style='color:#a8261f;'>✗ Don't:</strong> {t["dont"]}</span>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        st.markdown(
+            "<p style='color:#888;font-size:0.78rem;margin-top:4px;'>"
+            "All signals are paper-trade simulations only — no real money is at risk. "
+            "Confidence is built from 7 technical factors: RSI, MACD, Bollinger %b, Trend, "
+            "Regime, Volume Surge, and Momentum ROC."
+            "</p>",
+            unsafe_allow_html=True,
+        )
+
+
 def pnl_strip(daily: float, weekly: float, monthly: float, ytd: float) -> None:
-    """Render a four-up DoD / WoW / MoM / YTD realised-PnL strip."""
     def _fmt(v: float) -> str:
         sign = "+" if v >= 0 else "−"
         return f"{sign}${abs(v):,.2f}"
@@ -326,25 +456,21 @@ def pnl_strip(daily: float, weekly: float, monthly: float, ytd: float) -> None:
 
     cells = [
         ("Today", daily),
-        ("This week", weekly),
-        ("This month", monthly),
-        ("Year-to-date", ytd),
+        ("Week", weekly),
+        ("Month", monthly),
+        ("YTD", ytd),
     ]
-    html = "<div style='display:flex;gap:10px;margin:4px 0 8px 0;'>"
-    for label, v in cells:
-        html += (
-            f"<div style='flex:1;padding:8px 12px;border:1px solid rgba(127,127,127,0.22);"
-            f"border-radius:10px;'>"
-            f"<div class='spy-meta'>{label} P&amp;L</div>"
-            f"<div style='font-weight:700;color:{_color(v)};font-size:1.05rem;'>{_fmt(v)}</div>"
-            f"</div>"
-        )
-    html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
+    cells_html = "".join(
+        f"<div class='spy-pnl-cell'>"
+        f"<div class='spy-meta'>{label} P&amp;L</div>"
+        f"<div style='font-weight:700;color:{_color(v)};font-size:1.05rem;'>{_fmt(v)}</div>"
+        f"</div>"
+        for label, v in cells
+    )
+    st.markdown(f"<div class='spy-pnl-strip'>{cells_html}</div>", unsafe_allow_html=True)
 
 
 def drawdown_gauge(current_dd: float, max_dd: float = -0.10) -> None:
-    """Render a drawdown gauge with the 10% brake line annotated."""
     pct = min(0.0, current_dd)
     width = min(100.0, abs(pct / max_dd) * 100.0)
     color = "#0a7d2a" if pct >= -0.03 else ("#a16207" if pct >= -0.07 else "#a8261f")
@@ -362,11 +488,6 @@ def drawdown_gauge(current_dd: float, max_dd: float = -0.10) -> None:
 
 
 def target_progress(realised_pnl: float, target: float = 4000.0) -> None:
-    """Render a 'realised $X / $4,000 this month' progress bar.
-
-    Informational only — the dashboard does not execute trades, so this is a
-    motivator, not a guarantee.
-    """
     target = max(float(target), 1.0)
     progress = max(0.0, min(1.0, float(realised_pnl) / target))
     kind = "ok" if progress >= 1.0 else ("info" if realised_pnl >= 0 else "warn")

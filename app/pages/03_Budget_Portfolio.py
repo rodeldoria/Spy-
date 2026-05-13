@@ -12,10 +12,12 @@ from app._ui import (
     inject_global_css,
     loading,
     pnl_strip,
+    signal_guide,
     status_pill,
     target_progress,
     tier_pill,
 )
+from monte.broker.auto_trade import load_auto_trade_log
 from monte import journal
 from monte.alerts.engine import tail_alerts
 from monte.broker.paper_book import InsufficientFunds, PaperBook
@@ -155,6 +157,27 @@ def main() -> None:
         st.dataframe(pd.DataFrame(rows), use_container_width=True)
     else:
         st.caption("No positions yet.")
+
+    signal_guide()
+
+    # ── Auto-trade log ────────────────────────────────────────────────────────
+    auto_log = load_auto_trade_log()
+    if auto_log:
+        with st.expander(f"🤖 Auto-trade log ({len(auto_log)} entries)", expanded=False):
+            log_rows = []
+            for entry in reversed(auto_log[-50:]):
+                import datetime as _dt
+                ts_str = _dt.datetime.fromtimestamp(entry.get("ts", 0)).strftime("%m-%d %H:%M")
+                log_rows.append({
+                    "Time": ts_str,
+                    "Symbol": entry.get("symbol", ""),
+                    "Side": entry.get("side", "").upper(),
+                    "Qty": entry.get("qty", 0),
+                    "Price": f"${entry.get('price', 0):,.2f}",
+                    "Conf": f"{entry.get('confidence', 0):.0f}%",
+                    "Status": "✅ filled" if not entry.get("error") else f"⚠️ {entry.get('error', '')}",
+                })
+            st.dataframe(pd.DataFrame(log_rows), use_container_width=True, hide_index=True)
 
     st.subheader("Suggested orders from active alerts")
     with loading("Reading alerts log…"):
