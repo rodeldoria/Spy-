@@ -359,6 +359,17 @@ def score_event(
 # Earning-potential helpers — bridge "edge per $1" → "expected $ on my bet"
 # ---------------------------------------------------------------------------
 
+def _effective_ask_cents(ask_cents: int) -> int:
+    """Floor ask at 1¢ so price/payout/fee math all share one basis.
+
+    A 0¢ ask is non-tradable on Kalshi (no offers); treating it as 1¢
+    keeps every helper internally consistent (fee, payout, breakeven
+    all derived from the same effective price) and avoids the bug
+    where ev_per_dollar inflates because fee was computed at p=0.
+    """
+    return max(1, int(ask_cents))
+
+
 def kalshi_fee_per_contract(ask_cents: int) -> float:
     """Kalshi trading fee per contract, in dollars. Uses the published
     formula: round_up(0.07 × price × (1 - price) × 100) / 100, applied to
@@ -366,7 +377,8 @@ def kalshi_fee_per_contract(ask_cents: int) -> float:
 
     For ask = 10¢ → ~1¢, ask = 50¢ → ~2¢, ask = 1¢ → ~1¢ floor.
     """
-    p = max(0.0, min(1.0, ask_cents / 100.0))
+    eff = _effective_ask_cents(ask_cents)
+    p = eff / 100.0
     raw_dollars = 0.07 * p * (1.0 - p)
     if raw_dollars <= 0:
         return 0.0
@@ -374,16 +386,32 @@ def kalshi_fee_per_contract(ask_cents: int) -> float:
     return math.ceil(raw_dollars * 100.0) / 100.0
 
 
-def breakeven_prob(ask_cents: int) -> float:
-    """The probability of YES (or NO) you'd need just to break even at
-    the given ask. Equal to the ask price expressed as a probability."""
-    return max(0.0, min(1.0, ask_cents / 100.0))
+def breakeven_prob(ask_cents: int, fee_aware: bool = True) -> float:
+    """Probability you'd need to clear breakeven at the given ask.
+
+    With fee_aware=True (default), accounts for the Kalshi fee paid on
+    a winning settlement, so net-EV ≥ 0 lines up with the displayed
+    breakeven. With fee_aware=False, returns the raw price (gross
+    breakeven), useful for showing the basis traders are used to.
+
+    Derivation (YES, ask = p, fee per $1 staked on win = f_d):
+      EV_net = m*((1-p)/p - f_d) - (1-m)
+      EV_net ≥ 0  ⟺  m ≥ (1 + f_d) / (1/p + f_d) = p*(1+f_d)/(1+p*f_d)
+    """
+    eff = _effective_ask_cents(ask_cents)
+    p = eff / 100.0
+    if not fee_aware:
+        return p
+    fee = kalshi_fee_per_contract(ask_cents)
+    f_d = fee / p  # fee per $1 staked, on a winning outcome
+    return max(0.0, min(1.0, p * (1.0 + f_d) / (1.0 + p * f_d)))
 
 
 def net_ev_per_dollar(model_prob: float, ask_cents: int) -> tuple[float, float]:
     """Expected net P&L per $1 staked, after Kalshi fees. Returns
     (net_ev_per_dollar, fee_drag_per_dollar_on_win)."""
-    p = max(1, ask_cents) / 100.0
+    eff = _effective_ask_cents(ask_cents)
+    p = eff / 100.0
     fee = kalshi_fee_per_contract(ask_cents)
     # If you stake $1 you own 1/p contracts. On a win each contract pays
     # $1 gross, so gross win profit = (1-p)/p per $1. Fees are charged
@@ -407,7 +435,8 @@ def expected_dollars_at_stake(
       net_expected_$ — probability-weighted net dollars
       contracts — number of contracts purchased
     """
-    p = max(1, ask_cents) / 100.0
+    eff = _effective_ask_cents(ask_cents)
+    p = eff / 100.0
     contracts = stake_dollars / p if p > 0 else 0.0
     fee_per = kalshi_fee_per_contract(ask_cents)
     gross_win = contracts * (1.0 - p)

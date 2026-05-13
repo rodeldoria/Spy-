@@ -564,48 +564,114 @@ def _render_decision_row(d: Decision, calib_report=None, stake: float = 10.0) ->
             unsafe_allow_html=True,
         )
 
-        # YES side — concrete dollar payout calc
-        yes = d.yes_side
-        ev_color = "#0a7d2a" if yes.ev_per_dollar > 0 else "#a8261f"
-        yes_profit = stake * (yes.payout - 1) if yes.payout > 1 else 0.0
-        # Escape '$' as '\$' so Streamlit's markdown doesn't treat the
-        # dollar amounts as inline LaTeX (which corrupts the HTML between
-        # the dollar signs).
+        # ----- Earning-potential helpers — fees, breakeven, $ at stake -----
+        from app.kalshi.decisions import (
+            breakeven_prob,
+            expected_dollars_at_stake,
+            kalshi_fee_per_contract,
+            model_quality_factor,
+            net_ev_per_dollar,
+            annualized_roi,
+        )
+
+        mq_factor, mq_label = model_quality_factor(d.warnings)
+        # When the model is operating on a fallback prior, we discount
+        # the displayed EV/E[net] *primary* numbers so users don't anchor
+        # on a phantom +63¢/$1. The raw (undiscounted) figure is still
+        # shown small/grey beside it for transparency.
+        mq_badge = ""
+        if mq_factor < 1.0:
+            mq_badge = (
+                f"<span style='display:inline-block;margin-left:6px;padding:1px 6px;"
+                f"font-size:0.7rem;border-radius:4px;background:rgba(168,38,31,0.15);"
+                f"color:#a8261f;font-weight:600;' title='{mq_label}'>"
+                f"⚠ EV ×{mq_factor:.1f}</span>"
+            )
+
+        def _side_block(side_name: str, side, win_label: str, lose_label: str) -> str:
+            """Render YES or NO column with all earning-potential datapoints."""
+            be = breakeven_prob(side.ask_cents)
+            net_ev, fee_drag = net_ev_per_dollar(side.model_prob, side.ask_cents)
+            buf_pp = (side.model_prob - be) * 100  # cushion above breakeven
+
+            # $ at user's stake (net of fees)
+            at_stake = expected_dollars_at_stake(
+                side.model_prob, side.ask_cents, stake)
+            # $ at Kelly-sized stake (capped to 25% of bankroll, fractional Kelly)
+            kelly_stake = max(0.0, side.kelly_fraction) * 0.5 * bankroll
+            at_kelly = expected_dollars_at_stake(
+                side.model_prob, side.ask_cents, kelly_stake)
+
+            ann_roi = annualized_roi(net_ev, d.horizon_seconds)
+            ev_color = "#0a7d2a" if net_ev > 0 else "#a8261f"
+            buf_color = "#0a7d2a" if buf_pp > 0 else "#a8261f"
+
+            # Kelly $ row only renders when Kelly > 0 and bankroll > 0
+            kelly_row = ""
+            if side.kelly_fraction > 0 and kelly_stake > 0:
+                ke_color = "#0a7d2a" if at_kelly["net_expected"] > 0 else "#a8261f"
+                kelly_row = (
+                    f"<div style='font-size:0.78rem;margin-top:3px;color:#cbd5e1;'>"
+                    f"⚖ Half-Kelly bet <strong>\\${kelly_stake:,.0f}</strong> "
+                    f"({side.kelly_fraction*100:.1f}%) → "
+                    f"<span style='color:{ke_color};font-weight:700;'>"
+                    f"E[net] \\${at_kelly['net_expected']:+,.2f}</span></div>"
+                )
+
+            # Apply model-quality discount to the *displayed primary*
+            # EV figures, so a fallback-model card doesn't show a fake
+            # +63¢/$1 as the headline number. The raw (un-discounted)
+            # value is shown smaller for transparency.
+            disp_net_expected = at_stake["net_expected"] * mq_factor
+            disp_net_ev = net_ev * mq_factor
+            disp_ann_roi = ann_roi * mq_factor
+            ev_color = "#0a7d2a" if disp_net_expected > 0 else "#a8261f"
+            raw_tail = ""
+            if mq_factor < 1.0:
+                raw_tail = (
+                    f" <span style='color:#94a3b8;font-size:0.72rem;'>"
+                    f"(raw \\${at_stake['net_expected']:+,.2f} · "
+                    f"{net_ev*100:+.1f}¢/\\$1)</span>"
+                )
+
+            return (
+                f"**{side_name}** @ {side.ask_cents}¢ ({side.payout:.2f}x)  \n"
+                f"<span class='spy-meta'>book {side.implied_prob*100:.1f}% · "
+                f"model {side.model_prob*100:.1f}% · edge {side.edge*100:+.1f}pp</span>  \n"
+                f"<span class='spy-meta'>🎯 Net breakeven {be*100:.1f}% · "
+                f"<span style='color:{buf_color};font-weight:600;'>"
+                f"buffer {buf_pp:+.1f}pp</span></span>  \n"
+                f"<span style='font-size:0.84rem;'>"
+                f"💵 Bet <strong>\\${stake:,.0f}</strong> → "
+                f"<span style='color:#0a7d2a;font-weight:700;'>"
+                f"+\\${at_stake['net_win']:,.2f}</span> {win_label} · "
+                f"<span style='color:#a8261f;font-weight:700;'>"
+                f"-\\${at_stake['max_loss']:,.2f}</span> {lose_label}<br/>"
+                f"<span style='color:#94a3b8;font-size:0.74rem;'>"
+                f"({at_stake['contracts']:.1f} ctr · fees \\${at_stake['fees']:,.2f} on win)"
+                f"</span></span>  \n"
+                f"<span style='color:{ev_color};font-weight:700;'>"
+                f"E[net] at \\${stake:,.0f}: \\${disp_net_expected:+,.2f}</span> "
+                f"<span class='spy-meta'>· "
+                f"net EV {disp_net_ev*100:+.1f}¢/\\$1 · "
+                f"ann. {disp_ann_roi*100:+.0f}%/yr</span>"
+                f"{mq_badge}"
+                f"{raw_tail}"
+                f"{kelly_row}"
+            )
+
         cols[2].markdown(
-            f"**YES** @ {yes.ask_cents}¢ ({yes.payout:.2f}x)  \n"
-            f"<span class='spy-meta'>book {yes.implied_prob*100:.1f}% · "
-            f"model {yes.model_prob*100:.1f}% · edge {yes.edge*100:+.1f}pp</span>  \n"
-            f"<span style='font-size:0.86rem;'>"
-            f"💵 Bet <strong>\\${stake:,.0f}</strong> → "
-            f"<span style='color:#0a7d2a;font-weight:700;'>+\\${yes_profit:,.2f}</span> if YES wins · "
-            f"<span style='color:#a8261f;font-weight:700;'>-\\${stake:,.2f}</span> if NO"
-            f"</span>  \n"
-            f"<span style='color:{ev_color};font-weight:700;'>"
-            f"EV {yes.ev_per_dollar*100:+.1f}¢/\\$1</span>"
-            + (f" · Kelly {yes.kelly_fraction*100:.1f}%" if yes.kelly_fraction > 0 else ""),
+            _side_block("YES", d.yes_side, "if YES wins", "if NO"),
             unsafe_allow_html=True,
         )
-
-        # NO side — concrete dollar payout calc
-        no = d.no_side
-        ev_color = "#0a7d2a" if no.ev_per_dollar > 0 else "#a8261f"
-        no_profit = stake * (no.payout - 1) if no.payout > 1 else 0.0
         cols[3].markdown(
-            f"**NO** @ {no.ask_cents}¢ ({no.payout:.2f}x)  \n"
-            f"<span class='spy-meta'>book {no.implied_prob*100:.1f}% · "
-            f"model {no.model_prob*100:.1f}% · edge {no.edge*100:+.1f}pp</span>  \n"
-            f"<span style='font-size:0.86rem;'>"
-            f"💵 Bet <strong>\\${stake:,.0f}</strong> → "
-            f"<span style='color:#0a7d2a;font-weight:700;'>+\\${no_profit:,.2f}</span> if NO wins · "
-            f"<span style='color:#a8261f;font-weight:700;'>-\\${stake:,.2f}</span> if YES"
-            f"</span>  \n"
-            f"<span style='color:{ev_color};font-weight:700;'>"
-            f"EV {no.ev_per_dollar*100:+.1f}¢/\\$1</span>"
-            + (f" · Kelly {no.kelly_fraction*100:.1f}%" if no.kelly_fraction > 0 else ""),
+            _side_block("NO", d.no_side, "if NO wins", "if YES"),
             unsafe_allow_html=True,
         )
 
-        st.caption(d.reasoning)
+        # Escape '$' in reasoning so Streamlit's markdown doesn't treat
+        # things like "EV +X¢/$1" as LaTeX delimiters.
+        st.caption(d.reasoning.replace("$", "\\$"))
         for w in d.warnings:
             st.markdown(status_pill(w, "warn"), unsafe_allow_html=True)
 
