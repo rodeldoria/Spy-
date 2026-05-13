@@ -293,6 +293,9 @@ def inject_global_css() -> None:
             font-weight: 800;
             font-size: 1.0rem;
             font-variant-numeric: tabular-nums;
+            /* Theme-neutral: inherits text color from Streamlit's theme so it's
+               always high-contrast in both light and dark mode. Tier color
+               lives on the .fill bar only. */
         }
         .spy-prob-bar .track {
             background: rgba(127,127,127,0.22);

@@ -172,7 +172,7 @@ def _prob_bar(prob: float, label: str, highlight: bool = False) -> str:
         f"<div class='{classes}'>"
         f"<div class='row'>"
         f"<span class='label'>{star}{label}</span>"
-        f"<span class='pct' style='color:{bar_color};'>{pct}%</span>"
+        f"<span class='pct'>{pct}%</span>"
         f"</div>"
         f"<div class='track'>"
         f"<div class='fill' style='background:{bar_color};width:{pct}%;'></div>"
