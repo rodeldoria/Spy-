@@ -191,7 +191,7 @@ def main() -> None:
 
     free = cash + (eq.market_value if eq else 0.0)
 
-    for r in rows:
+    for idx, r in enumerate(rows):
         spot = float(r.get("spot", 0))
         stop = float(r.get("stop", 0))
         if spot <= 0 or stop <= 0:
@@ -214,7 +214,7 @@ def main() -> None:
             with c[4]:
                 if r.get("reasoning"):
                     st.caption(f"💡 {r['reasoning']}")
-                action_buy = st.button(f"Paper-buy {qty} {r.get('symbol')}", key=f"b-{r.get('hash','')}-{spot}")
+                action_buy = st.button(f"Paper-buy {qty} {r.get('symbol')}", key=f"b-{idx}-{r.get('hash','')}-{spot}")
                 if action_buy:
                     try:
                         snap = r.get("indicator_snapshot") or {}
