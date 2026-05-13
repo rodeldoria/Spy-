@@ -531,20 +531,68 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
         f"{adx_arrow} ADX {regime.adx:.0f}</span>"
     )
 
+    # Each tile has a short caption shown beneath the value, plus a rich
+    # multi-line "ⓘ" hover tooltip explaining (1) what the metric is,
+    # (2) what the numbers mean, and (3) why we track it.
+    spot_tip = (
+        "WHAT: Live price of one unit (1 BTC, 1 ETH, etc.) in USD.\n"
+        f"NUMBERS: Quoted in dollars. Source `{src}` is the exchange/feed we pulled it from.\n"
+        "WHY: Every other signal on this page is judged relative to spot — "
+        "entries, stops, targets, Kalshi strikes and the forecast bands all "
+        "anchor here. Stale spot = wrong everything else."
+    )
+    rsi_tip = (
+        "WHAT: Relative Strength Index, 14-period — momentum oscillator (Wilder, 1978).\n"
+        "NUMBERS: 0-100 scale. <30 = oversold (often bounces). "
+        ">70 = overbought (often pulls back). 50 = neutral.\n"
+        "WHY: A leading exhaustion signal. When RSI prints an extreme while "
+        "price keeps going (divergence), trend reversals tend to follow."
+    )
+    bb_tip = (
+        "WHAT: Bollinger Band %b — where price sits inside the 20-period ±2σ band.\n"
+        "NUMBERS: 0.00 = touching the lower band (squeeze/oversold). "
+        "1.00 = touching the upper band (extension/overbought). "
+        "0.50 = middle (20-period mean).\n"
+        "WHY: A normalised mean-reversion gauge that adapts to volatility. "
+        "Tells us if a move is statistically extreme for *this* market right now, "
+        "not in absolute dollars."
+    )
+    macd_tip = (
+        "WHAT: MACD histogram — the gap between the MACD line (12-EMA - 26-EMA) "
+        "and its 9-period signal line.\n"
+        "NUMBERS: Positive (+) = short-term momentum is faster than the trend, "
+        "i.e. accelerating up. Negative (−) = decelerating / accelerating down. "
+        "Magnitude scales with the asset's price.\n"
+        "WHY: One of the cleanest momentum-shift detectors. Histogram crossing "
+        "zero often marks the inflection point before a meaningful move."
+    )
+    regime_tip = (
+        "WHAT: Composite trend regime label, plus ADX(14) — the strength of "
+        "whatever trend is in place.\n"
+        "NUMBERS: ADX <15 = chop/range (no trend, mean-reversion edge). "
+        "15-25 = mild trend. >25 = strong trend (trend-following edge). "
+        ">40 = very strong (often near exhaustion).\n"
+        "WHY: A buy signal in a chop regime fails very differently than a buy "
+        "signal in a strong uptrend. We track regime so the same RSI=30 reading "
+        "gets weighted differently depending on what kind of market we're in."
+    )
+
     metrics_cells = [
-        ("Spot", f"${spot:,.2f}", f"source: {src}", None),
-        ("RSI(14)", f"{last_rsi:.0f}", "<30 oversold · >70 overbought", None),
-        ("BB %b", f"{float(bb_row['bb_pctb']):.2f}", "0 = lower · 1 = upper", None),
-        ("MACD", f"{macd_hist:+.3f}", "positive = bullish momentum", None),
-        ("Regime", regime_short, "trend strength below", adx_sub),
+        ("Spot",     f"${spot:,.2f}",                        f"source: {src}",                  None,    spot_tip),
+        ("RSI(14)",  f"{last_rsi:.0f}",                       "<30 oversold · >70 overbought",   None,    rsi_tip),
+        ("BB %b",    f"{float(bb_row['bb_pctb']):.2f}",       "0 = lower · 1 = upper",           None,    bb_tip),
+        ("MACD",     f"{macd_hist:+.3f}",                     "positive = bullish momentum",     None,    macd_tip),
+        ("Regime",   regime_short,                            "trend strength below",            adx_sub, regime_tip),
     ]
     metrics_html = "".join(
-        f"<div class='spy-metric-cell' title='{_html.escape(tooltip)}'>"
-        f"<div class='spy-metric-label'>{_html.escape(label)}</div>"
+        f"<div class='spy-metric-cell' title='{_html.escape(rich_tip)}'>"
+        f"<div class='spy-metric-label'>{_html.escape(label)} "
+        f"<span style='color:#6b7280;font-size:0.72rem;cursor:help;' "
+        f"title='{_html.escape(rich_tip)}'>ⓘ</span></div>"
         f"<div class='spy-metric-value'>{_html.escape(value)}</div>"
         f"<div class='spy-metric-sub'>{sub_html if sub_html else _html.escape(tooltip)}</div>"
         f"</div>"
-        for label, value, tooltip, sub_html in metrics_cells
+        for label, value, tooltip, sub_html, rich_tip in metrics_cells
     )
     st.markdown(
         f"<div class='spy-metric-strip'>{metrics_html}</div>",
