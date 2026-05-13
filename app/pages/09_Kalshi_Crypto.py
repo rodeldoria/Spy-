@@ -25,14 +25,26 @@ from streamlit_autorefresh import st_autorefresh
 from app._shared import setup_page
 from app._ui import inject_global_css, status_pill
 from app.kalshi import (
+    CouncilResult,
     Decision,
     KalshiClient,
     KalshiMarket,
+    Opinion,
+    evaluate_council,
+    get_opinion,
     get_spot_price,
     score_event,
 )
 from app.kalshi.spot import SpotQuote, default_sigma_per_min, manual_quote
 from monte.learning import kalshi_calibration as kcal
+
+# Kalshi's web URL routes by event ticker; the event page lists every market
+# (strike) in the event, so the user lands one click from the specific strike.
+# Constructing a market-specific slug from the API ticker isn't reliable —
+# Kalshi's slugs aren't pure functions of the ticker — so we route to the
+# event and put the exact market ticker + side + price in the button label
+# so the user knows what to look for.
+KALSHI_EVENT_URL = "https://kalshi.com/markets/{event_ticker_lower}"
 
 SYMBOLS = ["BTC", "ETH", "SOL"]
 HORIZONS = ["15min", "hourly", "daily", "weekly"]
@@ -162,7 +174,125 @@ def _countdown(seconds: float) -> str:
     return f"{s // 86400}d {(s % 86400) // 3600:02d}h"
 
 
-def _render_decision_row(d: Decision, calib_report=None, stake: float = 10.0) -> None:
+def _council_pill(council: CouncilResult) -> str:
+    """5-gate council badge — green when armed (≥4/5), grey when not."""
+    if council.armed:
+        if council.passed == council.total:
+            fg, bg, label = "#0a7d2a", "#e0f5e6", "ALL CLEAR"
+        else:
+            fg, bg, label = "#915a00", "#fff4d6", "ARMED w/ caveat"
+    else:
+        fg, bg, label = "#5b6470", "#f1f3f5", "NOT ARMED"
+    failed = ", ".join(c.name for c in council.failed_checks) or "none"
+    return (
+        f"<span class='spy-pill' style='color:{fg};background:{bg};"
+        f"font-size:0.82rem;padding:3px 9px;font-weight:700;' "
+        f"title='Council score reuses edge/EV/Kelly/conviction/liquidity from score_market. "
+        f"Failed: {failed}.'>"
+        f"COUNCIL {council.score_label} · {label}</span>"
+    )
+
+
+def _opinion_pill(opinion: Opinion) -> str:
+    palette = {
+        "AGREE": ("#0a7d2a", "#e0f5e6", "✓ AGREE"),
+        "DISAGREE": ("#a8261f", "#fbe9e7", "✗ DISAGREE"),
+        "UNSURE": ("#915a00", "#fff4d6", "? UNSURE"),
+        "SKIPPED": ("#5b6470", "#f1f3f5", "— SKIPPED"),
+    }
+    fg, bg, label = palette.get(opinion.verdict, palette["SKIPPED"])
+    return (
+        f"<span class='spy-pill' style='color:{fg};background:{bg};"
+        f"font-size:0.82rem;padding:3px 9px;font-weight:700;' "
+        f"title='{opinion.reasoning[:300]}'>"
+        f"🤖 CLAUDE {label}</span>"
+    )
+
+
+def _kalshi_event_url(market_ticker: str, event_ticker: str) -> str:
+    et = (event_ticker or market_ticker or "").lower()
+    return KALSHI_EVENT_URL.format(event_ticker_lower=et)
+
+
+def _render_council_row(
+    d: Decision,
+    council: CouncilResult | None,
+    opinion: Opinion | None,
+    stake: float,
+) -> None:
+    """Render the council badge, AI second-opinion (if any), and order button.
+
+    The button is a deep-link to the Kalshi event page (no money moves from
+    this app). It's only shown when (a) the council is armed (≥4/5 gates pass)
+    and (b) Claude either agrees, is unsure, or wasn't consulted. A Claude
+    DISAGREE downgrades the button to a yellow caution variant rather than
+    suppressing it — the framework is advisory, not gating.
+    """
+    if council is None:
+        return
+
+    chosen = d.chosen
+    if chosen is None:
+        return
+
+    pills = [_council_pill(council)]
+    if opinion is not None:
+        pills.append(_opinion_pill(opinion))
+    st.markdown(" ".join(pills), unsafe_allow_html=True)
+
+    if opinion is not None and opinion.verdict == "SKIPPED":
+        st.caption(f"🤖 AI second opinion skipped: {opinion.reasoning}")
+    elif opinion is not None and opinion.verdict != "SKIPPED":
+        st.caption(f"🤖 Claude ({opinion.model}, {opinion.elapsed_ms}ms): {opinion.reasoning}")
+
+    if not council.armed:
+        st.caption(
+            f"🛑 Order button suppressed — council {council.score_label}, "
+            f"failed: {', '.join(c.name for c in council.failed_checks)}. "
+            "Adjust the sidebar thresholds or wait for the book to move."
+        )
+        return
+
+    url = _kalshi_event_url(d.market_ticker, getattr(d, "market_ticker", ""))
+    # Pull event ticker from the raw market if we can — the Decision doesn't
+    # carry it directly, but most market tickers ARE the event ticker for
+    # crypto series. Falling back to the market ticker is safe.
+    button_label = (
+        f"Open {d.direction} @ {chosen.ask_cents}¢ on Kalshi → "
+        f"({d.market_ticker}, stake ${stake:,.0f})"
+    )
+    caution = opinion is not None and opinion.verdict == "DISAGREE"
+    button_color = "#a8261f" if caution else "#0a7d2a"
+    button_bg = "#fbe9e7" if caution else "#e0f5e6"
+    caution_note = (
+        " · ⚠ Claude disagrees — read its reasoning above before clicking"
+        if caution
+        else ""
+    )
+    st.markdown(
+        f"<a href='{url}' target='_blank' rel='noopener' "
+        f"style='display:inline-block;padding:8px 16px;border-radius:6px;"
+        f"background:{button_bg};color:{button_color};font-weight:700;"
+        f"text-decoration:none;border:1px solid {button_color};'>"
+        f"{button_label}</a>"
+        f"<div style='color:#5b6470;font-size:0.78rem;margin-top:4px;'>"
+        f"Opens Kalshi in a new tab — no money moves from this app. "
+        f"Confirm the side, strike, and size on Kalshi before placing the order."
+        f"{caution_note}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_decision_row(
+    d: Decision,
+    calib_report=None,
+    stake: float = 10.0,
+    *,
+    min_edge: float = 0.04,
+    min_ev: float = 0.02,
+    enable_ai_opinion: bool = False,
+    ai_cache: dict | None = None,
+) -> None:
     with st.container(border=True):
         cols = st.columns([3.0, 1.4, 1.4, 1.6])
 
@@ -246,6 +376,12 @@ def _render_decision_row(d: Decision, calib_report=None, stake: float = 10.0) ->
         st.caption(d.reasoning)
         for w in d.warnings:
             st.markdown(status_pill(w, "warn"), unsafe_allow_html=True)
+
+        council = evaluate_council(d, min_edge=min_edge, min_ev=min_ev)
+        opinion = None
+        if council is not None and enable_ai_opinion:
+            opinion = get_opinion(d, council, cache=ai_cache)
+        _render_council_row(d, council, opinion, stake)
 
 
 def _resolve_spot(symbol: str) -> tuple[SpotQuote | None, str | None]:
@@ -511,7 +647,17 @@ def _render_calibration_panel() -> None:
             st.rerun()
 
 
-def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_ev: float, sort_mode: str, stake: float = 10.0) -> None:
+def _render_symbol(
+    symbol: str,
+    horizons: tuple[str, ...],
+    min_edge: float,
+    min_ev: float,
+    sort_mode: str,
+    stake: float = 10.0,
+    *,
+    enable_ai_opinion: bool = False,
+    ai_cache: dict | None = None,
+) -> None:
     st.subheader(f"{symbol}")
     spot, err = _resolve_spot(symbol)
     spot_col, override_col = st.columns([2.4, 1.6])
@@ -595,11 +741,27 @@ def _render_symbol(symbol: str, horizons: tuple[str, ...], min_edge: float, min_
             [d for d in decisions if d.direction == "PASS"], sort_mode
         )
         for d in actionable:
-            _render_decision_row(d, calib_report=calib, stake=stake)
+            _render_decision_row(
+                d,
+                calib_report=calib,
+                stake=stake,
+                min_edge=min_edge,
+                min_ev=min_ev,
+                enable_ai_opinion=enable_ai_opinion,
+                ai_cache=ai_cache,
+            )
         if passes:
             with st.expander(f"PASS markets ({len(passes)}) — book in line with model"):
                 for d in passes[:8]:
-                    _render_decision_row(d, calib_report=calib, stake=stake)
+                    _render_decision_row(
+                        d,
+                        calib_report=calib,
+                        stake=stake,
+                        min_edge=min_edge,
+                        min_ev=min_ev,
+                        enable_ai_opinion=False,  # never spend on PASS rows
+                        ai_cache=ai_cache,
+                    )
 
     if not any_rendered:
         st.info(f"No active {symbol} markets in the selected horizons right now.")
@@ -668,12 +830,26 @@ def main() -> None:
         )
         st_autorefresh(interval=refresh_secs * 1000, key="kalshi_refresh")
 
+        st.markdown("---")
+        st.markdown("**Confirmation framework**")
+        enable_ai_opinion = st.toggle(
+            "🤖 Enable AI second opinion (Claude)",
+            value=False,
+            help="When on, every armed market (council ≥4/5) gets a one-sentence "
+            "AGREE/DISAGREE/UNSURE verdict from Claude Haiku 4.5. Requires "
+            "ANTHROPIC_API_KEY in the environment. Results are cached per market "
+            "for 60s so auto-refresh doesn't burn tokens.",
+        )
+
     st.caption(
         "Hybrid: Kalshi orderbook auto-pulled, spot price auto-pulled "
         "(Coinbase → Binance) with manual override. Direction is based on "
         "edge vs. a driftless GBM model using realised 1-min vol over "
-        "time-to-close. **Advisory only — no orders are placed.**"
+        "time-to-close. Order buttons are **deep-links to Kalshi** — no money "
+        "moves from this app; you confirm and execute on Kalshi."
     )
+
+    ai_cache = st.session_state.setdefault("kalshi_ai_cache", {})
     st.markdown(
         f"{status_pill(f'auto-refresh {refresh_secs}s', 'info')} "
         f"{status_pill(f'edge ≥ {min_edge_pp}pp · EV ≥ {min_ev_cents}¢', 'muted')} "
@@ -698,6 +874,8 @@ def main() -> None:
             min_ev=min_ev_cents / 100.0,
             sort_mode=sort_mode,
             stake=float(stake),
+            enable_ai_opinion=enable_ai_opinion,
+            ai_cache=ai_cache,
         )
 
 
