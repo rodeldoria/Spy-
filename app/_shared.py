@@ -25,8 +25,28 @@ def pattern_store():
     return PatternStore()
 
 
+# Minimum bars to cover a 2-week lookback window per timeframe.
+# Used for indicator stability and journal-similarity matching.
+_BARS_PER_TWO_WEEKS = {
+    "1m":  14 * 24 * 60,
+    "5m":  14 * 24 * 12,
+    "15m": 14 * 24 * 4,
+    "30m": 14 * 24 * 2,
+    "1h":  14 * 24,
+    "1d":  14,
+}
+
+
+def two_week_bars(interval: str, floor: int = 300) -> int:
+    """How many bars we need to cover ~2 weeks of history at this timeframe."""
+    return max(floor, _BARS_PER_TWO_WEEKS.get(interval, floor))
+
+
 @st.cache_data(ttl=30, show_spinner=False)
-def candles_short(symbol: str, interval: str, lookback_bars: int = 300):
+def candles_short(symbol: str, interval: str, lookback_bars: int | None = None):
+    """Fetch candles. Defaults to >= 2 weeks of bars for the chosen timeframe."""
+    if lookback_bars is None:
+        lookback_bars = two_week_bars(interval)
     if is_crypto(symbol):
         from monte.data import crypto
 
@@ -36,9 +56,10 @@ def candles_short(symbol: str, interval: str, lookback_bars: int = 300):
     if interval == "1d":
         return prices.get_daily(symbol, period="2y")
     period_map = {"1m": "5d", "5m": "60d", "15m": "60d", "30m": "60d", "1h": "730d"}
-    return prices.get_intraday(
+    df = prices.get_intraday(
         symbol, period=period_map.get(interval, "60d"), interval=interval
     )
+    return df.tail(lookback_bars) if len(df) > lookback_bars else df
 
 
 @st.cache_data(ttl=300, show_spinner=False)
