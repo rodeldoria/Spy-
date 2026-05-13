@@ -1,15 +1,15 @@
 """Watchlist dashboard — surfaces a clear, actionable signal per symbol.
 
-Each card now renders:
+Each card renders:
   - Spot price + freshness badge
-  - The triangulated detector verdict as a big BUY / SELL / HOLD pill
-  - A "horizon" badge: DAY TRADE / SWING / LONG HOLD
-  - RSI, %b, MACD histogram, regime + ADX with a sparkline of ~2 weeks
-  - Per-factor contributions (RSI/MACD/BB/Trend/Regime) with their score
-  - Optional Perplexity news brief that confirms or conflicts with the call
-  - Pattern-journal lookup: "X similar setups before → Y% wins, avg +Z%"
-  - One-click "Log paper entry" / "Close open entries" so successful trades
-    can be remembered for the next confirmation pass
+  - Pulsing BUY NOW / SELL NOW banner when Monte Edge says ACT_NOW
+  - Triangulated verdict as a big BUY / SELL / HOLD pill
+  - Horizon badge: DAY TRADE / SWING / LONG HOLD
+  - RSI, %b, MACD histogram, regime + ADX with a sparkline
+  - Per-factor contributions (RSI/MACD/BB/Trend/Regime) with score
+  - Perplexity news brief that confirms or conflicts with the call
+  - Option plays for stocks/ETFs; futures guidance for crypto
+  - Pattern-journal lookup and one-click paper entry logging
 """
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ from app._ui import (
     freshness_pill,
     inject_global_css,
     loading,
+    signal_banner,
     status_pill,
     tier_pill,
 )
@@ -103,12 +104,56 @@ def _render_news(sym: str, action_label: str, news_enabled: bool) -> None:
     kind = {"confirms": "ok", "conflicts": "err", "neutral": "muted"}[alignment]
     badge = status_pill(f"news {alignment} · {brief.sentiment}", kind)
     st.markdown(f"🔎 **News check** {badge}", unsafe_allow_html=True)
+    if brief.error:
+        st.caption(f"⚠️ {brief.summary}")
+        return
     if brief.summary:
         st.caption(brief.summary)
     if brief.headlines:
         st.markdown("\n".join(f"- {h}" for h in brief.headlines))
     if brief.catalysts:
         st.caption("Watch for: " + " · ".join(brief.catalysts))
+
+
+def _render_options(sym: str, alert, edge, timeframe: str) -> None:
+    """Show option / futures play for any symbol when signal is actionable."""
+    if alert.action.value == "HOLD":
+        return
+    if edge is not None and edge.tier not in {EdgeTier.ACT_NOW, EdgeTier.WATCH}:
+        return
+
+    direction_key = "long" if alert.score > 0 else "short"
+    try:
+        ticket = suggest_option(direction_key, alert.entry, symbol=sym)
+    except Exception:
+        ticket = None
+
+    if ticket is None:
+        return
+
+    horizon = str(alert.horizon.value) if hasattr(alert.horizon, "value") else str(alert.horizon)
+    horizon_label = HORIZON_LABEL.get(horizon, horizon.replace("_", " ").title())
+
+    st.markdown("---")
+    st.markdown(f"### 📈 Suggested Play · {horizon_label}")
+
+    if ticket.get("is_crypto_note"):
+        st.info(ticket.get("rationale", ""))
+    else:
+        cols = st.columns(4)
+        cols[0].metric("Side", ticket["side"])
+        cols[1].metric("Strike", f"${ticket['strike']:.0f}")
+        cols[2].metric("Expiry", ticket["expiry"])
+        cols[3].metric("Premium", f"${ticket['premium']:.2f}")
+
+        c2 = st.columns(3)
+        c2[0].metric("Breakeven", f"${ticket['breakeven']:.2f}")
+        c2[1].metric("Max Risk/contract", f"${ticket['max_risk_per_contract']:.0f}")
+        c2[2].metric("Est. Delta", f"{ticket['est_delta']:.2f}")
+
+        if ticket.get("iv"):
+            st.caption(f"Implied volatility: {ticket['iv']*100:.1f}%")
+        st.caption(ticket.get("rationale", ""))
 
 
 def _render_journal(
@@ -118,7 +163,6 @@ def _render_journal(
     df,
     timeframe: str,
 ) -> None:
-    # Journal-based memory (KNN over indicator snapshots of past paper trades).
     history = journal.similar_history(
         symbol=sym, action=action_label, snapshot=snapshot, k=5
     )
@@ -142,8 +186,6 @@ def _render_journal(
             "across nearest neighbours by indicator distance."
         )
 
-    # Pattern-library memory (vector store of past OHLCV windows + forward
-    # returns). Cold-start until the user runs `python -m monte.patterns.ingest`.
     try:
         match = find_similar(sym, timeframe, df, k=20, store=pattern_store())
     except Exception as e:
@@ -166,7 +208,6 @@ def _render_journal(
         unsafe_allow_html=True,
     )
 
-    # Flag mixed evidence so the user can size down when memories disagree.
     if history.count and abs(history.win_rate - lib_win_pct) > 25:
         st.markdown(
             status_pill("mixed evidence — journal & pattern library disagree", "warn"),
@@ -174,11 +215,7 @@ def _render_journal(
         )
 
 
-def _render_journal_controls(
-    sym: str,
-    timeframe: str,
-    alert,
-) -> None:
+def _render_journal_controls(sym: str, timeframe: str, alert) -> None:
     open_for_sym = journal.open_entries(symbol=sym)
     cols = st.columns([1, 1, 2])
     if alert.action.value not in {"HOLD"} and cols[0].button(
@@ -209,7 +246,7 @@ def _render_journal_controls(
 
     if open_for_sym:
         cols[2].caption(
-            f"Open: " + " · ".join(
+            "Open: " + " · ".join(
                 f"{e.action} ${e.entry:,.2f}" for e in open_for_sym[:3]
             )
         )
@@ -222,7 +259,7 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
     )
 
     try:
-        with loading(f"Fetching {sym} ({timeframe}) candles · 2-week window…"):
+        with loading(f"Fetching {sym} ({timeframe}) candles…"):
             df = candles_short(sym, timeframe)
     except Exception as e:
         placeholder.empty()
@@ -260,12 +297,10 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
 
     alert = detect(df, symbol=sym, timeframe=timeframe)
 
-    # Layer Monte Edge on top — adds tier + macro filter + reasoning.
     spy_df = None
     if sym.upper() != "SPY":
         try:
             from monte.data import prices as _prices
-
             spy_df = _prices.get_daily("SPY", period="2y")
         except Exception:
             spy_df = None
@@ -277,6 +312,28 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
         edge = None
 
     placeholder.empty()
+
+    # ── Pulsing ACT NOW banner — impossible to miss ──
+    if edge is not None and edge.tier is EdgeTier.ACT_NOW:
+        direction_key = "long" if alert.score > 0 else "short"
+        ticket = None
+        try:
+            ticket = suggest_option(direction_key, alert.entry, symbol=sym)
+        except Exception:
+            pass
+        signal_banner({
+            "symbol": sym,
+            "action": alert.action.value,
+            "tier": edge.tier.value,
+            "confidence": edge.confidence,
+            "spot": spot,
+            "stop": alert.stop,
+            "target": alert.target,
+            "rr": alert.rr,
+            "horizon": alert.horizon.value,
+            "reasoning": edge.reasoning,
+            "options_ticket": ticket,
+        })
 
     tier_block = ""
     if edge is not None:
@@ -294,12 +351,11 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
         f"{alert.horizon_rationale} — "
         f"{HORIZON_HOLD_HINT.get(alert.horizon, '')}"
     )
-    if edge is not None and edge.reasoning:
+    if edge is not None and edge.reasoning and edge.tier is not EdgeTier.ACT_NOW:
         st.info(f"💡 **Why this works:** {edge.reasoning}")
     if edge is not None and edge.macro_note:
         st.caption(f"📊 Macro: {edge.macro_note} · confluence {edge.confluence}/5")
 
-    # SMA20/50 cross — high-signal swing trigger.
     cross = detect_cross(close, fast=20, slow=50)
     if cross.fired_recently:
         kind = "ok" if cross.kind == "golden" else "err"
@@ -312,7 +368,6 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
     m[3].metric("MACD hist", f"{macd_hist:+.3f}", help="positive = bullish momentum")
     m[4].metric("Regime", regime.regime.value, f"ADX {regime.adx:.0f}")
 
-    # Full chart: candles + BB + SMA20/50/200 + volume + RSI + MACD + cross marker.
     chart_df = df.tail(400)
     st.plotly_chart(
         build_chart(chart_df, ma_cross=cross, height=560),
@@ -321,27 +376,26 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
     )
 
     if alert.action.value != "HOLD":
-        direction = "Long" if alert.score > 0 else "Short"
-        st.success(
-            f"**{direction} setup · {alert.action.value.replace('_', ' ')}** — "
-            f"Entry **${alert.entry:,.2f}** · Stop **${alert.stop:,.2f}** · "
-            f"Target **${alert.target:,.2f}** · R:R **{alert.rr:.2f}**"
+        is_buy = alert.score > 0
+        direction = "Long" if is_buy else "Short"
+        color = "#0a7d2a" if is_buy else "#a8261f"
+        bg = "#e8f7ec" if is_buy else "#fbe9e7"
+        st.markdown(
+            f"<div style='padding:12px 16px;border-radius:10px;background:{bg};"
+            f"border-left:4px solid {color};margin:6px 0;'>"
+            f"<strong style='color:{color};font-size:1.05rem;'>"
+            f"{'🚀' if is_buy else '🔻'} {direction} setup · "
+            f"{alert.action.value.replace('_', ' ')}"
+            f"</strong><br/>"
+            f"Entry <strong>${alert.entry:,.2f}</strong> · "
+            f"Stop <strong>${alert.stop:,.2f}</strong> · "
+            f"Target <strong>${alert.target:,.2f}</strong> · "
+            f"R:R <strong>{alert.rr:.2f}</strong>"
+            f"</div>",
+            unsafe_allow_html=True,
         )
-        # SPY-only options ticket — only when Monte Edge says ACT_NOW or WATCH.
-        if sym.upper() == "SPY" and edge is not None and edge.tier in {EdgeTier.ACT_NOW, EdgeTier.WATCH}:
-            try:
-                direction_key = "long" if alert.score > 0 else "short"
-                ticket = suggest_option(direction_key, alert.entry)
-            except Exception:
-                ticket = None
-            if ticket:
-                st.markdown(
-                    f"📈 **Options ticket** — "
-                    f"**{ticket['side']} ${ticket['strike']:.0f}** exp. {ticket['expiry']} · "
-                    f"premium ~**${ticket['premium']:.2f}** · breakeven **${ticket['breakeven']:.2f}** · "
-                    f"max risk **${ticket['max_risk_per_contract']:.0f}**/contract"
-                )
-                st.caption(ticket.get("rationale", ""))
+        # Option / futures play for all symbols
+        _render_options(sym, alert, edge, timeframe)
     else:
         st.markdown(
             status_pill("no actionable pattern · data flowing ok", "muted"),
@@ -409,7 +463,7 @@ def main() -> None:
     timeframe = st.sidebar.selectbox(
         "Timeframe",
         ["1m", "5m", "15m", "30m", "1h", "1d"],
-        index=2,  # default 15m
+        index=2,
         help="1m = highest resolution (yfinance limit: last 7 days only).",
     )
     refresh_secs = st.sidebar.select_slider(
@@ -428,8 +482,7 @@ def main() -> None:
     symbols = crypto + stocks
 
     st.caption(
-        "Live indicator dashboard. Every card shows a clear BUY / SELL / HOLD "
-        "with a trade horizon (Day Trade / Swing / Long-Term Hold). "
+        "Live indicator dashboard. Cards with a **pulsing green/red banner** = ACT NOW signal. "
         "**HOLD** = nothing to do right now, not a failure."
     )
 

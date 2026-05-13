@@ -237,8 +237,12 @@ class KalshiClient:
 def _market_from_payload(m: dict[str, Any]) -> KalshiMarket:
     """Build a KalshiMarket from the API response shape.
 
-    Kalshi returns prices in cents; close/expiration times are ISO-8601 UTC.
-    Some fields differ slightly between event types, so we coalesce.
+    Kalshi migrated from integer cent fields (yes_bid, yes_ask) to dollar
+    string fields (yes_bid_dollars, yes_ask_dollars).  We accept both so
+    cached/stale responses and the new format both work.
+
+    Internal representation is integer cents (0-100) throughout.
+    Close/expiration times are ISO-8601 UTC strings.
     """
     def _iso_to_epoch(s: str | None) -> float:
         if not s:
@@ -249,6 +253,38 @@ def _market_from_payload(m: dict[str, Any]) -> KalshiMarket:
         except (TypeError, ValueError):
             return 0.0
 
+    def _to_cents(key_dollars: str, key_cents: str) -> int:
+        """Read a price field, preferring the new *_dollars variant."""
+        v = m.get(key_dollars)
+        if v is not None:
+            try:
+                return round(float(v) * 100)
+            except (TypeError, ValueError):
+                pass
+        v = m.get(key_cents)
+        if v is not None:
+            try:
+                return int(float(v))
+            except (TypeError, ValueError):
+                pass
+        return 0
+
+    def _to_int_fp(key_fp: str, key_plain: str) -> int:
+        """Read a volume/OI field, preferring the new *_fp (float) variant."""
+        v = m.get(key_fp)
+        if v is not None:
+            try:
+                return int(float(v))
+            except (TypeError, ValueError):
+                pass
+        v = m.get(key_plain)
+        if v is not None:
+            try:
+                return int(float(v))
+            except (TypeError, ValueError):
+                pass
+        return 0
+
     floor_strike = m.get("floor_strike")
     cap_strike = m.get("cap_strike")
     return KalshiMarket(
@@ -257,13 +293,13 @@ def _market_from_payload(m: dict[str, Any]) -> KalshiMarket:
         title=m.get("title", "") or m.get("yes_sub_title", ""),
         subtitle=m.get("subtitle", "") or m.get("yes_sub_title", ""),
         status=m.get("status", ""),
-        yes_bid=int(m.get("yes_bid") or 0),
-        yes_ask=int(m.get("yes_ask") or 0),
-        no_bid=int(m.get("no_bid") or 0),
-        no_ask=int(m.get("no_ask") or 0),
-        last_price=int(m.get("last_price") or 0),
-        volume=int(m.get("volume") or 0),
-        open_interest=int(m.get("open_interest") or 0),
+        yes_bid=_to_cents("yes_bid_dollars", "yes_bid"),
+        yes_ask=_to_cents("yes_ask_dollars", "yes_ask"),
+        no_bid=_to_cents("no_bid_dollars", "no_bid"),
+        no_ask=_to_cents("no_ask_dollars", "no_ask"),
+        last_price=_to_cents("last_price_dollars", "last_price"),
+        volume=_to_int_fp("volume_fp", "volume"),
+        open_interest=_to_int_fp("open_interest_fp", "open_interest"),
         close_time=_iso_to_epoch(m.get("close_time")),
         expiration_time=_iso_to_epoch(m.get("expiration_time") or m.get("close_time")),
         strike_type=m.get("strike_type"),

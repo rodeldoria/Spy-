@@ -1,14 +1,14 @@
-"""SPY option-chain helper (yfinance).
+"""Option-chain helper — any optionable ticker (yfinance).
 
-Picks an at-the-money contract in the 30–45 DTE window — the sweet spot of
-gamma vs theta for directional debit trades. Defined risk = premium paid.
+Picks an at-the-money contract in the 30–45 DTE window for stocks/ETFs.
+For crypto, returns a structured suggestion note since exchange-traded
+crypto options aren't available via yfinance.
 
 Returns `None` when yfinance is unavailable or the chain is empty so the
 caller never crashes the dashboard.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Any
 
@@ -33,7 +33,6 @@ def _pick_expiry(expiries: list[str], *, min_dte: int = 30, max_dte: int = 45) -
         dte = (d - today).days
         if min_dte <= dte <= max_dte:
             return ex
-        # If nothing in window, remember the closest expiry past min_dte.
         if dte >= min_dte and (best is None or dte < best[0]):
             best = (dte, ex)
     return best[1] if best else (expiries[-1] if expiries else None)
@@ -48,6 +47,11 @@ def _atm_row(chain_df, spot: float):
     return chain_df.loc[idx]
 
 
+def _is_crypto(symbol: str) -> bool:
+    s = symbol.upper()
+    return "-" in s and s.split("-")[-1] in {"USD", "USDC", "USDT", "BTC"}
+
+
 def suggest_contract(
     direction: str,
     spot: float,
@@ -60,6 +64,9 @@ def suggest_contract(
     'long'  → ATM call (bullish)
     'short' → ATM put  (bearish)
 
+    For crypto symbols, returns a structured note about available instruments
+    since exchange-traded options aren't available via yfinance for crypto.
+
     Returns a dict with strike, expiry, premium, breakeven, est_delta, and
     a one-line `rationale`. Returns None when no chain data is available.
     """
@@ -67,10 +74,36 @@ def suggest_contract(
         return None
     if spot <= 0:
         return None
+
+    # Crypto: suggest futures/perpetual swap alternatives
+    if _is_crypto(symbol):
+        side = "CALL / long perpetual" if direction == "long" else "PUT / short perpetual"
+        return {
+            "symbol": symbol,
+            "side": side,
+            "direction": direction,
+            "strike": round(spot, 2),
+            "expiry": "perpetual",
+            "premium": 0.0,
+            "bid": 0.0,
+            "ask": 0.0,
+            "breakeven": round(spot * (1.01 if direction == "long" else 0.99), 2),
+            "est_delta": 1.0 if direction == "long" else -1.0,
+            "iv": None,
+            "rationale": (
+                f"Crypto options aren't available via yfinance. For {symbol} consider: "
+                f"{'long spot or buy a call on Deribit/Coinbase' if direction == 'long' else 'short spot or buy a put on Deribit/Coinbase'}. "
+                f"Alternatively, use CME Bitcoin futures (BTC) or micro contracts (MBT)."
+            ),
+            "max_risk_per_contract": 0.0,
+            "is_crypto_note": True,
+        }
+
     try:
         import yfinance as yf
     except ImportError:
         return None
+
     try:
         ticker = yf.Ticker(symbol)
         expiries = list(ticker.options or [])
@@ -101,9 +134,8 @@ def suggest_contract(
     if mid <= 0:
         mid = max(0.05, abs(spot - strike) + 0.5)
 
-    # Crude delta proxy: ATM ≈ 0.50; +0.05 per (spot-strike)/1% of spot.
     moneyness = (spot - strike) / max(spot, 1e-9)
-    delta_proxy = 0.5 + moneyness * 5.0  # rough; positive for calls
+    delta_proxy = 0.5 + moneyness * 5.0
     delta_proxy = max(0.1, min(0.9, delta_proxy))
     if direction == "short":
         delta_proxy = -delta_proxy
@@ -134,7 +166,8 @@ def suggest_contract(
         "est_delta": round(delta_proxy, 2),
         "iv": iv_val,
         "rationale": rationale,
-        "max_risk_per_contract": round(mid * 100, 2),  # options are 100x
+        "max_risk_per_contract": round(mid * 100, 2),
+        "is_crypto_note": False,
     }
 
 

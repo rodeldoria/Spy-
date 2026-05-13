@@ -23,17 +23,11 @@ _ACTION_STYLE = {
 
 
 def inject_global_css() -> None:
-    """Inject a small CSS bundle so the app stops looking like the default demo.
-
-    Idempotent — calling it multiple times in a session is fine because
-    Streamlit only renders the most recent block.
-    """
     st.markdown(
         """
         <style>
-        :root {
-            --pill-radius: 999px;
-        }
+        :root { --pill-radius: 999px; }
+
         .spy-pill {
             display: inline-flex;
             align-items: center;
@@ -92,6 +86,65 @@ def inject_global_css() -> None:
             background: rgba(127,127,127,0.18);
             margin: 8px 0 6px 0;
         }
+
+        /* ── BUY NOW pulse animation ── */
+        @keyframes buy-pulse {
+            0%   { box-shadow: 0 0 0 0   rgba(10,125,42,0.70); }
+            50%  { box-shadow: 0 0 0 14px rgba(10,125,42,0.00); }
+            100% { box-shadow: 0 0 0 0   rgba(10,125,42,0.70); }
+        }
+        @keyframes sell-pulse {
+            0%   { box-shadow: 0 0 0 0   rgba(168,38,31,0.70); }
+            50%  { box-shadow: 0 0 0 14px rgba(168,38,31,0.00); }
+            100% { box-shadow: 0 0 0 0   rgba(168,38,31,0.70); }
+        }
+        .buy-now-banner {
+            background: linear-gradient(135deg, #0a7d2a 0%, #12a03a 100%);
+            color: #fff;
+            padding: 18px 22px;
+            border-radius: 14px;
+            margin: 10px 0 14px 0;
+            animation: buy-pulse 1.8s infinite;
+        }
+        .sell-now-banner {
+            background: linear-gradient(135deg, #a8261f 0%, #c43028 100%);
+            color: #fff;
+            padding: 18px 22px;
+            border-radius: 14px;
+            margin: 10px 0 14px 0;
+            animation: sell-pulse 1.8s infinite;
+        }
+        .signal-banner-label {
+            font-size: 0.72rem;
+            letter-spacing: 1.6px;
+            text-transform: uppercase;
+            opacity: 0.85;
+            margin-bottom: 2px;
+        }
+        .signal-banner-title {
+            font-size: 1.6rem;
+            font-weight: 900;
+            letter-spacing: 0.3px;
+            margin: 2px 0 4px 0;
+        }
+        .signal-banner-meta {
+            font-size: 0.92rem;
+            opacity: 0.93;
+        }
+        .signal-banner-why {
+            font-size: 0.82rem;
+            margin-top: 8px;
+            opacity: 0.88;
+            line-height: 1.5;
+        }
+        .signal-banner-options {
+            font-size: 0.82rem;
+            margin-top: 6px;
+            padding: 6px 10px;
+            background: rgba(255,255,255,0.18);
+            border-radius: 8px;
+            opacity: 0.95;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -123,7 +176,6 @@ def status_pill(text: str, kind: str = "info") -> str:
 
 
 def freshness_pill(last_ts) -> str:
-    """Render an 'updated Xs ago' pill from a timestamp / Timestamp / datetime."""
     if last_ts is None:
         return status_pill("no data", "err")
     if isinstance(last_ts, pd.Timestamp):
@@ -172,7 +224,6 @@ def render_skeleton(rows: int = 3) -> None:
 
 @contextmanager
 def loading(message: str):
-    """Spinner that always shows even when work is fast — feels less demo-y."""
     with st.spinner(message):
         yield
 
@@ -193,8 +244,8 @@ def tier_pill(tier: str, confidence: float | None = None) -> str:
     )
 
 
-def act_now_banner(row: dict) -> None:
-    """Render a full-width sticky banner for an ACT_NOW signal."""
+def signal_banner(row: dict) -> None:
+    """Pulsing full-width BUY NOW / SELL NOW banner for ACT_NOW signals."""
     sym = row.get("symbol", "?")
     action = str(row.get("action", "?")).replace("_", " ")
     spot = float(row.get("spot", row.get("entry", 0)) or 0)
@@ -202,34 +253,52 @@ def act_now_banner(row: dict) -> None:
     target = float(row.get("target", 0) or 0)
     rr = float(row.get("rr", 0) or 0)
     conf = float(row.get("confidence", 0) or 0)
+    horizon = str(row.get("horizon", "")).replace("_", " ").title()
     reasoning = row.get("reasoning", "")
     options = row.get("options_ticket")
+    is_buy = "BUY" in str(row.get("action", "")).upper()
+    cls = "buy-now-banner" if is_buy else "sell-now-banner"
+    icon = "🚀" if is_buy else "🔻"
+
+    opts_html = ""
+    if options and not options.get("is_crypto_note"):
+        opts_html = (
+            f"<div class='signal-banner-options'>"
+            f"📈 Options: <strong>{options.get('side','')} ${options.get('strike',0):.0f}</strong> "
+            f"exp. {options.get('expiry','')} · "
+            f"premium ~<strong>${options.get('premium',0):.2f}</strong> · "
+            f"max risk <strong>${options.get('max_risk_per_contract',0):.0f}</strong>/contract"
+            f"</div>"
+        )
+    elif options and options.get("is_crypto_note"):
+        opts_html = (
+            f"<div class='signal-banner-options'>"
+            f"💡 {options.get('rationale','')}"
+            f"</div>"
+        )
 
     st.markdown(
         f"""
-        <div style='background:linear-gradient(90deg,#0a7d2a,#138a3a);
-                    color:#fff;padding:14px 18px;border-radius:12px;
-                    margin:8px 0 12px 0;box-shadow:0 2px 6px rgba(10,125,42,0.25);'>
-          <div style='font-size:0.78rem;letter-spacing:1.2px;opacity:0.85;'>🟢 ACT NOW · {conf:.0f}% conviction</div>
-          <div style='font-size:1.35rem;font-weight:800;margin:2px 0;'>{sym} {action} @ ${spot:,.2f}</div>
-          <div style='font-size:0.92rem;opacity:0.95;'>
-            Stop ${stop:,.2f} · Target ${target:,.2f} · R:R {rr:.2f}
+        <div class='{cls}'>
+          <div class='signal-banner-label'>{icon} ACT NOW · {conf:.0f}% conviction · {horizon}</div>
+          <div class='signal-banner-title'>{sym} {action} @ ${spot:,.2f}</div>
+          <div class='signal-banner-meta'>
+            Stop <strong>${stop:,.2f}</strong> · Target <strong>${target:,.2f}</strong> · R:R <strong>{rr:.2f}</strong>
           </div>
-          <div style='font-size:0.85rem;margin-top:6px;opacity:0.9;'>{reasoning}</div>
-          {("<div style='margin-top:6px;font-size:0.85rem;'>Options: " +
-            options.get("side","") + " $" + str(options.get("strike",0)) + " " +
-            options.get("expiry","") + " · premium ~$" +
-            f"{options.get('premium',0):.2f}" + " · max risk $" +
-            f"{options.get('max_risk_per_contract',0):.0f}" + "/contract" +
-            "</div>") if options else ""}
+          {f"<div class='signal-banner-why'>💡 {reasoning}</div>" if reasoning else ""}
+          {opts_html}
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
+def act_now_banner(row: dict) -> None:
+    """Alias kept for backward compatibility."""
+    signal_banner(row)
+
+
 def pnl_strip(daily: float, weekly: float, monthly: float, ytd: float) -> None:
-    """Render a four-up DoD / WoW / MoM / YTD realised-PnL strip."""
     def _fmt(v: float) -> str:
         sign = "+" if v >= 0 else "−"
         return f"{sign}${abs(v):,.2f}"
@@ -257,7 +326,6 @@ def pnl_strip(daily: float, weekly: float, monthly: float, ytd: float) -> None:
 
 
 def drawdown_gauge(current_dd: float, max_dd: float = -0.10) -> None:
-    """Render a drawdown gauge with the 10% brake line annotated."""
     pct = min(0.0, current_dd)
     width = min(100.0, abs(pct / max_dd) * 100.0)
     color = "#0a7d2a" if pct >= -0.03 else ("#a16207" if pct >= -0.07 else "#a8261f")
@@ -275,11 +343,6 @@ def drawdown_gauge(current_dd: float, max_dd: float = -0.10) -> None:
 
 
 def target_progress(realised_pnl: float, target: float = 4000.0) -> None:
-    """Render a 'realised $X / $4,000 this month' progress bar.
-
-    Informational only — the dashboard does not execute trades, so this is a
-    motivator, not a guarantee.
-    """
     target = max(float(target), 1.0)
     progress = max(0.0, min(1.0, float(realised_pnl) / target))
     kind = "ok" if progress >= 1.0 else ("info" if realised_pnl >= 0 else "warn")
