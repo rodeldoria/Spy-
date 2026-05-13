@@ -93,330 +93,92 @@ def inject_global_css() -> None:
             background: rgba(127,127,127,0.18);
             margin: 8px 0 6px 0;
         }
-
-        /* ── Alert card ── */
-        .spy-alert-card {
-            padding: 12px 16px;
-            border-radius: 10px;
-            border: 1px solid rgba(127,127,127,0.18);
-            margin: 6px 0;
-        }
-        .spy-alert-top {
-            display: flex;
-            align-items: flex-start;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 6px;
-        }
-        .spy-alert-symbol {
-            font-size: 1.1rem;
-            font-weight: 700;
-            flex: 1 1 auto;
-            min-width: 80px;
-        }
-        .spy-alert-pills {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-            align-items: center;
-        }
-        .spy-alert-metrics {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin: 6px 0;
-        }
-        .spy-alert-metric {
-            padding: 4px 10px;
-            border: 1px solid rgba(127,127,127,0.18);
-            border-radius: 8px;
-            min-width: 70px;
-            flex: 1 1 auto;
-        }
-        .spy-alert-metric .label { font-size: 0.72rem; color: #6b7280; }
-        .spy-alert-metric .value { font-size: 0.95rem; font-weight: 700; }
-        .spy-alert-body {
-            font-size: 0.82rem;
-            color: #94a3b8;
-            line-height: 1.5;
-            margin-top: 4px;
-        }
-
-        /* ── PnL strip — horizontal on desktop, wraps on mobile ── */
-        .spy-pnl-strip {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin: 4px 0 8px 0;
-        }
-        .spy-pnl-cell {
-            flex: 1 1 100px;
-            padding: 8px 12px;
-            border: 1px solid rgba(127,127,127,0.22);
-            border-radius: 10px;
-        }
-
-        /* ── Forecast grid — predicted price at each horizon ── */
-        .spy-fc-grid {
+        .spy-chips {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 6px;
-            margin: 4px 0 10px 0;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 8px;
+            margin: 6px 0 10px 0;
         }
-        .spy-fc-cell {
-            border: 1px solid rgba(127,127,127,0.22);
-            border-radius: 8px;
+        .spy-chip {
             padding: 8px 10px;
-            background: rgba(127,127,127,0.04);
+            border: 1px solid rgba(127,127,127,0.22);
+            border-radius: 10px;
             min-width: 0;
         }
-        .spy-fc-label {
+        .spy-chip .spy-chip-label {
             font-size: 0.72rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            color: #94a3b8;
-        }
-        .spy-fc-time {
-            font-size: 0.68rem;
             color: #6b7280;
-            margin-bottom: 4px;
+            letter-spacing: 0.2px;
+            text-transform: uppercase;
         }
-        .spy-fc-price {
+        .spy-chip .spy-chip-value {
+            font-weight: 700;
             font-size: 1.05rem;
-            font-weight: 700;
-        }
-        .spy-fc-delta {
-            font-size: 0.78rem;
-            font-weight: 600;
-        }
-        .spy-fc-range {
-            font-size: 0.68rem;
-            color: #6b7280;
-            margin-top: 2px;
-        }
-        .spy-fc-band {
-            font-size: 0.66rem;
-            color: #94a3b8;
-            margin-top: 2px;
-        }
-        @media (max-width: 768px) {
-            .spy-fc-grid { grid-template-columns: repeat(2, 1fr); }
-            .spy-fc-price { font-size: 0.95rem; }
-        }
-
-        /* ── Metric strip — replaces st.columns(5) of st.metric ── */
-        .spy-metric-strip {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-            gap: 6px;
-            margin: 8px 0 12px 0;
-        }
-        .spy-metric-cell {
-            border: 1px solid rgba(127,127,127,0.20);
-            border-radius: 8px;
-            padding: 8px 10px;
-            background: rgba(127,127,127,0.04);
-            min-width: 0;
-            overflow: hidden;
-        }
-        .spy-metric-label {
-            font-size: 0.7rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            color: #94a3b8;
-        }
-        .spy-metric-value {
-            font-size: 1.15rem;
-            font-weight: 700;
             line-height: 1.25;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            margin-top: 2px;
+            word-break: break-word;
+            white-space: normal;
         }
-        .spy-metric-sub {
-            font-size: 0.66rem;
+        .spy-chip .spy-chip-sub {
+            font-size: 0.72rem;
             color: #6b7280;
             margin-top: 2px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
         }
-        @media (max-width: 768px) {
-            .spy-metric-strip { grid-template-columns: repeat(3, 1fr); }
-            .spy-metric-value { font-size: 1.0rem; }
+        .spy-plain {
+            border: 1px solid rgba(127,127,127,0.22);
+            border-left: 4px solid #1d4ed8;
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin: 8px 0;
+            background: rgba(29,78,216,0.04);
         }
-        @media (max-width: 480px) {
-            .spy-metric-strip { grid-template-columns: repeat(2, 1fr); }
+        .spy-plain h4 {
+            margin: 0 0 4px 0;
+            font-size: 0.95rem;
+            font-weight: 700;
         }
-
-        /* ── BUY / SELL pulse animations ── */
-        @keyframes buy-pulse {
-            0%   { box-shadow: 0 0 0 0   rgba(10,125,42,0.70); }
-            50%  { box-shadow: 0 0 0 14px rgba(10,125,42,0.00); }
-            100% { box-shadow: 0 0 0 0   rgba(10,125,42,0.70); }
+        .spy-plain ul { margin: 4px 0 0 0; padding-left: 18px; }
+        .spy-plain li { margin: 2px 0; font-size: 0.9rem; }
+        .spy-stream {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.78rem;
+            color: #0a7d2a;
+            font-weight: 600;
         }
-        @keyframes sell-pulse {
-            0%   { box-shadow: 0 0 0 0   rgba(168,38,31,0.70); }
-            50%  { box-shadow: 0 0 0 14px rgba(168,38,31,0.00); }
-            100% { box-shadow: 0 0 0 0   rgba(168,38,31,0.70); }
+        .spy-stream::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #0a7d2a;
+            box-shadow: 0 0 0 0 rgba(10,125,42,0.6);
+            animation: spy-pulse 1.4s infinite;
         }
-        .buy-now-banner {
-            background: linear-gradient(135deg, #0a7d2a 0%, #12a03a 100%);
-            color: #fff;
-            padding: 18px 22px;
-            border-radius: 14px;
-            margin: 10px 0 14px 0;
-            animation: buy-pulse 1.8s infinite;
+        @keyframes spy-pulse {
+            0%   { box-shadow: 0 0 0 0 rgba(10,125,42,0.55); }
+            70%  { box-shadow: 0 0 0 8px rgba(10,125,42,0.0); }
+            100% { box-shadow: 0 0 0 0 rgba(10,125,42,0.0); }
         }
-        .sell-now-banner {
-            background: linear-gradient(135deg, #a8261f 0%, #c43028 100%);
-            color: #fff;
-            padding: 18px 22px;
-            border-radius: 14px;
-            margin: 10px 0 14px 0;
-            animation: sell-pulse 1.8s infinite;
-        }
-        .signal-banner-label {
-            font-size: 0.72rem;
-            letter-spacing: 1.6px;
-            text-transform: uppercase;
-            opacity: 0.85;
-            margin-bottom: 2px;
-        }
-        .signal-banner-title {
-            font-size: 1.6rem;
-            font-weight: 900;
-            letter-spacing: 0.3px;
-            margin: 2px 0 4px 0;
-        }
-        .signal-banner-meta {
-            font-size: 0.92rem;
-            opacity: 0.93;
-        }
-        .signal-banner-why {
-            font-size: 0.82rem;
-            margin-top: 8px;
-            opacity: 0.88;
-            line-height: 1.5;
-        }
-        .signal-banner-options {
-            font-size: 0.82rem;
-            margin-top: 6px;
-            padding: 6px 10px;
-            background: rgba(255,255,255,0.18);
-            border-radius: 8px;
-            opacity: 0.95;
-        }
-
-        /* ══════════════════════════════════════════════
-           MOBILE RESPONSIVE  (≤ 768 px)
-           ══════════════════════════════════════════════ */
-        @media (max-width: 768px) {
-
-            /* Tighter main padding */
-            .main .block-container {
-                padding-left: 0.75rem !important;
-                padding-right: 0.75rem !important;
-                padding-top: 0.75rem !important;
-                max-width: 100% !important;
-            }
-
-            /* Stack ALL Streamlit columns into a single column */
+        /* --- Mobile (≤ 640px): stack the 2-up card grid and shrink chips --- */
+        @media (max-width: 640px) {
             [data-testid="stHorizontalBlock"] {
-                flex-wrap: wrap !important;
-                gap: 0 !important;
+                flex-direction: column !important;
+                gap: 8px !important;
             }
             [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+                width: 100% !important;
                 flex: 1 1 100% !important;
-                min-width: 0 !important;
-                width: 100% !important;
+                min-width: 100% !important;
             }
-
-            /* Exception: allow 2-wide pairs (2 cols of roughly equal weight) */
-            [data-testid="stHorizontalBlock"].spy-2col > [data-testid="column"] {
-                flex: 1 1 48% !important;
+            .spy-chips {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
-
-            /* Metric — reduce label size on very small screens */
-            [data-testid="stMetric"] label {
-                font-size: 0.75rem !important;
+            .spy-card-header {
+                flex-wrap: wrap;
             }
-            [data-testid="stMetricValue"] {
-                font-size: 1.1rem !important;
-            }
-
-            /* Signal banners — tighter on mobile */
-            .buy-now-banner, .sell-now-banner {
-                padding: 12px 14px !important;
-                border-radius: 10px !important;
-            }
-            .signal-banner-title {
-                font-size: 1.25rem !important;
-            }
-            .signal-banner-label {
-                font-size: 0.68rem !important;
-                letter-spacing: 1.2px !important;
-            }
-            .signal-banner-meta {
-                font-size: 0.82rem !important;
-            }
-
-            /* Pills — smaller on mobile */
-            .spy-pill {
-                font-size: 0.72rem !important;
-                padding: 2px 8px !important;
-            }
-
-            /* PnL strip — 2-up grid */
-            .spy-pnl-strip {
-                gap: 6px !important;
-            }
-            .spy-pnl-cell {
-                flex: 1 1 calc(50% - 6px) !important;
-                padding: 6px 10px !important;
-            }
-
-            /* Kalshi probability bars — fit labels */
-            .spy-meta {
-                font-size: 0.72rem !important;
-            }
-
-            /* Sidebar — reasonable width on small screens */
-            [data-testid="stSidebar"] {
-                min-width: 240px !important;
-                max-width: 80vw !important;
-            }
-
-            /* Tables and charts full-width */
-            [data-testid="stDataFrame"],
-            [data-testid="stPlotlyChart"] {
-                width: 100% !important;
-                overflow-x: auto !important;
-            }
-
-            /* Buttons — bigger tap targets */
-            .stButton > button {
-                min-height: 44px !important;
-                font-size: 0.9rem !important;
-                width: 100% !important;
-            }
-
-            /* Headings — scale down */
-            h1 { font-size: 1.6rem !important; }
-            h2 { font-size: 1.3rem !important; }
-            h3 { font-size: 1.1rem !important; }
-        }
-
-        @media (max-width: 480px) {
-            .signal-banner-title { font-size: 1.05rem !important; }
-            .buy-now-banner, .sell-now-banner {
-                padding: 10px 12px !important;
-            }
-            /* PnL strip — single column on very small phones */
-            .spy-pnl-cell { flex: 1 1 100% !important; }
+            .spy-card-header h3 { font-size: 1rem; }
+            .spy-pill { font-size: 0.72rem; padding: 2px 8px; }
         }
         </style>
         """,
