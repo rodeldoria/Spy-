@@ -485,21 +485,18 @@ def pnl_strip(daily: float, weekly: float, monthly: float, ytd: float) -> None:
 
     cells = [
         ("Today", daily),
-        ("This week", weekly),
-        ("This month", monthly),
-        ("Year-to-date", ytd),
+        ("Week", weekly),
+        ("Month", monthly),
+        ("YTD", ytd),
     ]
-    html = "<div style='display:flex;gap:10px;margin:4px 0 8px 0;'>"
-    for label, v in cells:
-        html += (
-            f"<div style='flex:1;padding:8px 12px;border:1px solid rgba(127,127,127,0.22);"
-            f"border-radius:10px;'>"
-            f"<div class='spy-meta'>{label} P&amp;L</div>"
-            f"<div style='font-weight:700;color:{_color(v)};font-size:1.05rem;'>{_fmt(v)}</div>"
-            f"</div>"
-        )
-    html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
+    cells_html = "".join(
+        f"<div class='spy-pnl-cell'>"
+        f"<div class='spy-meta'>{label} P&amp;L</div>"
+        f"<div style='font-weight:700;color:{_color(v)};font-size:1.05rem;'>{_fmt(v)}</div>"
+        f"</div>"
+        for label, v in cells
+    )
+    st.markdown(f"<div class='spy-pnl-strip'>{cells_html}</div>", unsafe_allow_html=True)
 
 
 def drawdown_gauge(current_dd: float, max_dd: float = -0.10) -> None:

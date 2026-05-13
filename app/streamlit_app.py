@@ -32,50 +32,73 @@ from monte.config import settings
 
 
 def _render_alert_row(r: dict) -> None:
-    with st.container(border=True):
-        cols = st.columns([2.6, 1, 1, 1, 3])
-        action = r.get("action", "HOLD")
-        tier = r.get("tier", "")
-        head = (
-            f"### {r.get('symbol')} "
-            f"<span class='spy-meta'>{r.get('timeframe')}</span><br/>"
+    action = r.get("action", "HOLD")
+    tier = r.get("tier", "")
+    sym = r.get("symbol", "?")
+    tf = r.get("timeframe", "")
+    conf = r.get("confidence", 0)
+    spot = r.get("spot", 0)
+    entry = r.get("entry", 0)
+    stop = r.get("stop", 0)
+    target = r.get("target", 0)
+    rr = r.get("rr", 0)
+
+    if tier:
+        pills = f"{tier_pill(tier, conf)} {action_pill(action)} {freshness_pill(r.get('ts'))}"
+    else:
+        pills = f"{action_pill(action, conf)} {freshness_pill(r.get('ts'))}"
+
+    metrics_html = (
+        f"<div class='spy-alert-metrics'>"
+        f"<div class='spy-alert-metric'><div class='label'>Conf</div><div class='value'>{conf:.0f}%</div></div>"
+        f"<div class='spy-alert-metric'><div class='label'>Spot</div><div class='value'>${spot:,.2f}</div></div>"
+        f"<div class='spy-alert-metric'><div class='label'>Entry</div><div class='value'>${entry:,.2f}</div></div>"
+        f"<div class='spy-alert-metric'><div class='label'>Stop</div><div class='value'>${stop:,.2f}</div></div>"
+        f"<div class='spy-alert-metric'><div class='label'>Target</div><div class='value'>${target:,.2f}</div></div>"
+        f"<div class='spy-alert-metric'><div class='label'>R:R</div><div class='value'>{rr:.2f}</div></div>"
+        f"</div>"
+    )
+
+    body_parts = []
+    reasoning = r.get("reasoning")
+    if reasoning:
+        body_parts.append(f"💡 {reasoning}")
+    contribs = r.get("contributions", [])
+    if contribs:
+        chips = " · ".join(
+            f"{c.get('name')} {c.get('score', 0):+.2f}"
+            for c in contribs
+            if abs(c.get("score", 0)) > 0.05
         )
-        if tier:
-            head += (
-                f"{tier_pill(tier, r.get('confidence', 0))} "
-                f"{action_pill(action)} "
-            )
-        else:
-            head += f"{action_pill(action, r.get('confidence', 0))} "
-        head += freshness_pill(r.get("ts"))
-        cols[0].markdown(head, unsafe_allow_html=True)
-        cols[1].metric("Confidence", f"{r.get('confidence', 0):.0f}%")
-        cols[2].metric("Spot", f"${r.get('spot', 0):,.2f}")
-        cols[3].metric("R:R", f"{r.get('rr', 0):.2f}")
-        with cols[4]:
-            st.caption(
-                f"Entry **${r.get('entry', 0):,.2f}** · "
-                f"Stop **${r.get('stop', 0):,.2f}** · "
-                f"Target **${r.get('target', 0):,.2f}**"
-            )
-            reasoning = r.get("reasoning")
-            if reasoning:
-                st.caption(f"💡 {reasoning}")
-            contribs = r.get("contributions", [])
-            if contribs:
-                chips = " · ".join(
-                    f"{c.get('name')} {c.get('score', 0):+.2f}"
-                    for c in contribs
-                    if abs(c.get("score", 0)) > 0.05
-                )
-                st.caption(chips or "All contributions near zero.")
-            options = r.get("options_ticket")
-            if options:
-                st.caption(
-                    f"📈 Options: **{options.get('side','')} ${options.get('strike',0):.0f}** "
-                    f"{options.get('expiry','')} · premium ~${options.get('premium',0):.2f} "
-                    f"(max risk ${options.get('max_risk_per_contract',0):.0f}/contract)"
-                )
+        if chips:
+            body_parts.append(chips)
+    options = r.get("options_ticket")
+    if options and not options.get("is_crypto_note"):
+        body_parts.append(
+            f"📈 Options: {options.get('side','')} ${options.get('strike',0):.0f} "
+            f"{options.get('expiry','')} · premium ~${options.get('premium',0):.2f} "
+            f"(max risk ${options.get('max_risk_per_contract',0):.0f}/contract)"
+        )
+    elif options and options.get("is_crypto_note"):
+        body_parts.append(f"💡 {options.get('rationale','')}")
+
+    body_html = (
+        f"<div class='spy-alert-body'>"
+        + "<br/>".join(body_parts)
+        + "</div>"
+    ) if body_parts else ""
+
+    st.markdown(
+        f"<div class='spy-alert-card'>"
+        f"<div class='spy-alert-top'>"
+        f"<div class='spy-alert-symbol'>{sym} <span class='spy-meta'>{tf}</span></div>"
+        f"<div class='spy-alert-pills'>{pills}</div>"
+        f"</div>"
+        f"{metrics_html}"
+        f"{body_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def main() -> None:
