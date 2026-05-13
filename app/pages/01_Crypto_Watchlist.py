@@ -609,20 +609,31 @@ def _render_card(sym: str, timeframe: str, news_enabled: bool) -> None:
     if alert.action.value != "HOLD":
         is_buy = alert.score > 0
         direction = "Long" if is_buy else "Short"
-        color = "#0a7d2a" if is_buy else "#a8261f"
-        bg = "#e8f7ec" if is_buy else "#fbe9e7"
+        # Bright accent for the heading; darker translucent background +
+        # high-contrast body text so the box is readable on both light and
+        # dark themes.
+        if is_buy:
+            accent = "#22c55e"
+            bg = "rgba(34,197,94,0.12)"
+            border = "rgba(34,197,94,0.55)"
+        else:
+            accent = "#ef4444"
+            bg = "rgba(239,68,68,0.12)"
+            border = "rgba(239,68,68,0.55)"
+        body_color = "#e2e8f0"   # light grey — readable on both themes
         st.markdown(
             f"<div style='padding:12px 16px;border-radius:10px;background:{bg};"
-            f"border-left:4px solid {color};margin:6px 0;'>"
-            f"<strong style='color:{color};font-size:1.05rem;'>"
+            f"border:1px solid {border};border-left:4px solid {accent};margin:6px 0;'>"
+            f"<strong style='color:{accent};font-size:1.05rem;'>"
             f"{'🚀' if is_buy else '🔻'} {direction} setup · "
             f"{alert.action.value.replace('_', ' ')}"
             f"</strong><br/>"
-            f"Entry <strong>${alert.entry:,.2f}</strong> · "
-            f"Stop <strong>${alert.stop:,.2f}</strong> · "
-            f"Target <strong>${alert.target:,.2f}</strong> · "
-            f"R:R <strong>{alert.rr:.2f}</strong>"
-            f"</div>",
+            f"<span style='color:{body_color};'>"
+            f"Entry <strong style='color:#fff;'>${alert.entry:,.2f}</strong> · "
+            f"Stop <strong style='color:#fff;'>${alert.stop:,.2f}</strong> · "
+            f"Target <strong style='color:#fff;'>${alert.target:,.2f}</strong> · "
+            f"R:R <strong style='color:#fff;'>{alert.rr:.2f}</strong>"
+            f"</span></div>",
             unsafe_allow_html=True,
         )
         # Option / futures play for all symbols
