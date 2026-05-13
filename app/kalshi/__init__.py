@@ -13,15 +13,22 @@ No automated execution. Outputs are advisory; the user places the bet.
 
 from app.kalshi.client import KalshiClient, KalshiMarket, KalshiOrderbook
 from app.kalshi.decisions import Decision, score_market, score_event
+from app.kalshi.parsed import market_from_parsed, score_parsed_markets
 from app.kalshi.spot import SpotQuote, get_spot_price
+from app.kalshi.vision import ParsedMarket, ParsedSide, parse_screenshot
 
 __all__ = [
     "KalshiClient",
     "KalshiMarket",
     "KalshiOrderbook",
     "Decision",
+    "ParsedMarket",
+    "ParsedSide",
     "SpotQuote",
     "get_spot_price",
-    "score_market",
+    "market_from_parsed",
+    "parse_screenshot",
     "score_event",
+    "score_market",
+    "score_parsed_markets",
 ]
