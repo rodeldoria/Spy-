@@ -15,7 +15,13 @@ class Settings:
         self.stock_watchlist: list[str] = json.loads(
             os.environ.get("MONTE_STOCK_WATCHLIST", '["SPY"]')
         )
-        self.budget_usd: float = float(os.environ.get("MONTE_BUDGET_USD", "10000"))
+        # $500 default — sized for a real-money paper-to-live ramp. Override
+        # with MONTE_BUDGET_USD for backtesting at a larger scale.
+        self.budget_usd: float = float(os.environ.get("MONTE_BUDGET_USD", "500"))
+        # Monthly profit target surfaced on the dashboard. Informational only.
+        self.monthly_target_usd: float = float(
+            os.environ.get("MONTE_MONTHLY_TARGET_USD", "4000")
+        )
         self.vector_db_path: Path = Path(
             os.environ.get("MONTE_VECTOR_DB_PATH", str(Path.home() / ".monte" / "chroma"))
         )

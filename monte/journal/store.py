@@ -156,6 +156,27 @@ def record_exit(
     return match
 
 
+def list_entries(
+    *,
+    symbol: str | None = None,
+    outcomes: Iterable[str] | None = None,
+    horizons: Iterable[str] | None = None,
+) -> list[JournalEntry]:
+    """Return all journal entries, optionally filtered by symbol/outcome/horizon."""
+    out: list[JournalEntry] = []
+    out_set = set(outcomes) if outcomes else None
+    hor_set = set(horizons) if horizons else None
+    for e in _read_all():
+        if symbol and e.symbol != symbol.upper():
+            continue
+        if out_set and e.outcome not in out_set:
+            continue
+        if hor_set and e.horizon not in hor_set:
+            continue
+        out.append(e)
+    return out
+
+
 def open_entries(symbol: str | None = None) -> list[JournalEntry]:
     return [
         e
@@ -237,9 +258,10 @@ __all__ = [
     "FEATURE_KEYS",
     "JournalEntry",
     "SimilarHistory",
+    "list_entries",
+    "open_entries",
     "record_entry",
     "record_exit",
-    "open_entries",
     "similar_history",
     "summary",
 ]
