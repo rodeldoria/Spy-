@@ -13,6 +13,8 @@ Each card renders:
 """
 from __future__ import annotations
 
+import html
+
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -228,10 +230,10 @@ def _plain_english_guide(
         for s in bundle.top:
             text_col, bg_col, border_col = _chip_palette[s.direction]
             chips.append(
-                f"<span class='spy-pattern-chip' title=\"{s.note}\" "
+                f'<span class=\'spy-pattern-chip\' title="{html.escape(str(s.note), quote=True)}" '
                 f"style='color:{text_col};background:{bg_col};"
                 f"border:1px solid {border_col};'>"
-                f"{s.emoji} {s.name} · {s.bias_pp:+.1f}pp</span>"
+                f"{html.escape(str(s.emoji))} {html.escape(str(s.name))} · {s.bias_pp:+.1f}pp</span>"
             )
         st.markdown(
             f"<div class='spy-pattern-row'>"
@@ -318,8 +320,8 @@ def _render_contributions(contribs: list[dict]) -> None:
             color = "#6b7280"
         tip = _FACTOR_TIPS.get(name, f"{name} factor score (range −1 to +1).")
         pills.append(
-            f"<div class='spy-factor-pill' title=\"{tip}\">"
-            f"<div class='label'>{name}</div>"
+            f'<div class=\'spy-factor-pill\' title="{html.escape(str(tip), quote=True)}">'
+            f"<div class='label'>{html.escape(str(name))}</div>"
             f"<div class='value' style='color:{color};'>{sign}{score:.2f}</div>"
             f"</div>"
         )
