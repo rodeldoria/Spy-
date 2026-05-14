@@ -25,6 +25,7 @@ from app._shared import (
 )
 from app._ui import (
     action_pill,
+    filter_chip_row,
     freshness_pill,
     inject_global_css,
     loading,
@@ -798,8 +799,68 @@ def main() -> None:
         st.warning("Add at least one symbol in the sidebar.")
         return
 
+    # ── Page-level filter chips ───────────────────────────────────────────
+    # All three rows narrow the set of cards we render. Empty / "All"
+    # selections mean no filter. Underlying detect()/edge_evaluate() calls
+    # hit st.cache_data so the precompute is effectively free.
+    act_only = filter_chip_row(
+        "Mode", ["ACT NOW only"], state_key="cw_chip_act", mode="multi",
+        default=[],
+    )
+    dir_chips = filter_chip_row(
+        "Direction", ["Long", "Short", "Hold"], state_key="cw_chip_dir",
+        mode="multi", default=[],
+    )
+    horizon_chips = filter_chip_row(
+        "Horizon", ["Day", "Swing", "Long-hold"], state_key="cw_chip_horizon",
+        mode="multi", default=[],
+    )
+    want_act_only = "ACT NOW only" in (act_only or [])
+    dir_map = {"Long": "LONG", "Short": "SHORT", "Hold": "HOLD"}
+    horizon_map = {"Day": "DAY_TRADE", "Swing": "SWING", "Long-hold": "LONG_HOLD"}
+    allowed_dirs = {dir_map[c] for c in dir_chips}
+    allowed_horizons = {horizon_map[c] for c in horizon_chips}
+
+    def _card_passes(sym: str) -> bool:
+        if not (want_act_only or allowed_dirs or allowed_horizons):
+            return True
+        try:
+            df = candles_short(sym, timeframe)
+            if df.empty or "Close" not in df.columns:
+                return True
+            alert = detect(df, symbol=sym, timeframe=timeframe)
+        except Exception:
+            return True
+        if allowed_dirs:
+            action_v = alert.action.value
+            if action_v in {"BUY", "STRONG_BUY"}:
+                d = "LONG"
+            elif action_v in {"SELL", "STRONG_SELL"}:
+                d = "SHORT"
+            else:
+                d = "HOLD"
+            if d not in allowed_dirs:
+                return False
+        if allowed_horizons:
+            hv = getattr(alert.horizon, "value", str(alert.horizon))
+            if hv not in allowed_horizons:
+                return False
+        if want_act_only:
+            try:
+                edge = edge_evaluate(df, symbol=sym, timeframe=timeframe)
+            except Exception:
+                edge = None
+            if edge is None or edge.tier is not EdgeTier.ACT_NOW:
+                return False
+        return True
+
+    visible = [s for s in symbols if _card_passes(s)]
+    if not visible:
+        st.caption("No symbols match the chip filters. Loosen one of the rows above.")
+        return
+
     cols = st.columns(2)
-    for i, sym in enumerate(symbols):
+    for i, sym in enumerate(visible):
         with cols[i % 2]:
             with st.container(border=True):
                 _render_card(sym, timeframe, news_enabled)

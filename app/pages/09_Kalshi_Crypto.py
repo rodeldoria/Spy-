@@ -23,7 +23,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 from app._shared import setup_page
-from app._ui import inject_global_css, status_pill
+from app._ui import filter_chip_row, inject_global_css, status_pill
 from app.kalshi import (
     CouncilResult,
     Decision,
@@ -1366,27 +1366,57 @@ def main() -> None:
         st.warning("Pick at least one symbol and one horizon in the sidebar.")
         return
 
-    _kalshi_help()
+    # Side-effect helpers must run regardless of which tab is active.
     _maybe_settle()
-    _render_calibration_panel()
-    _render_temporal_panel()
-    for s in symbols:
-        _render_influencer_panel(s)
     _inject_live_countdown_js()
 
-    for symbol in symbols:
-        _render_symbol(
-            symbol,
-            tuple(horizons),
-            min_edge=min_edge_pp / 100.0,
-            min_ev=min_ev_cents / 100.0,
-            sort_mode=sort_mode,
-            stake=float(stake),
-            bankroll=float(bankroll),
-            enable_ai_coach=bool(enable_ai_coach),
-            enable_ai_opinion=enable_ai_opinion,
-            ai_cache=ai_cache,
-        )
+    # Page-level chip row narrows the sidebar's symbol/horizon selection.
+    # Empty chip list means "no extra filter — use sidebar selection as-is."
+    chip_symbols = filter_chip_row(
+        "Symbol", list(symbols), state_key="kalshi_chip_symbols", mode="multi",
+        default=[],
+    )
+    chip_horizons = filter_chip_row(
+        "Horizon", list(horizons), state_key="kalshi_chip_horizons", mode="multi",
+        default=[],
+    )
+    active_symbols = [s for s in symbols if not chip_symbols or s in chip_symbols]
+    active_horizons = [h for h in horizons if not chip_horizons or h in chip_horizons]
+
+    tab_live, tab_cal, tab_temp, tab_infl, tab_help = st.tabs(
+        ["Live decisions", "Calibration", "Temporal edge", "Influencer pulse", "Help & glossary"]
+    )
+
+    with tab_live:
+        if not active_symbols or not active_horizons:
+            st.info("Chips above narrowed the selection to empty. Loosen the chip filters or pick more in the sidebar.")
+        else:
+            for symbol in active_symbols:
+                _render_symbol(
+                    symbol,
+                    tuple(active_horizons),
+                    min_edge=min_edge_pp / 100.0,
+                    min_ev=min_ev_cents / 100.0,
+                    sort_mode=sort_mode,
+                    stake=float(stake),
+                    bankroll=float(bankroll),
+                    enable_ai_coach=bool(enable_ai_coach),
+                    enable_ai_opinion=enable_ai_opinion,
+                    ai_cache=ai_cache,
+                )
+
+    with tab_cal:
+        _render_calibration_panel()
+
+    with tab_temp:
+        _render_temporal_panel()
+
+    with tab_infl:
+        for s in symbols:
+            _render_influencer_panel(s)
+
+    with tab_help:
+        _kalshi_help()
 
 
 if __name__ == "__main__":

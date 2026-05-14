@@ -17,7 +17,7 @@ from streamlit_autorefresh import st_autorefresh
 
 from app._premortem_panel import render_premortem_panel
 from app._shared import setup_page
-from app._ui import inject_global_css
+from app._ui import filter_chip_row, inject_global_css
 from monte.signals.triangulation import (
     DEFAULT_WEIGHTS,
     PlayRecommendation,
@@ -533,21 +533,6 @@ def main() -> None:
         f"last update {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}"
     )
 
-    # Compact premortem panel — apply Klein's "this trade already lost, why?"
-    # drill to any prediction-market play you're considering. Defaults to the
-    # intraday lens since most Kalshi plays close inside a day.
-    render_premortem_panel(
-        key_prefix="kalshi-markets-premortem",
-        default_horizon="intraday",
-        compact=True,
-        expanded=False,
-        intro=(
-            "Premortem a Kalshi play before you click YES/NO. Paste the market, "
-            "your side, the edge you think you have, and the stop/exit — Claude "
-            "returns the failure modes most likely to ruin it before close."
-        ),
-    )
-
     groups = [g for g in FINANCIAL_SERIES if g["category"] in categories]
     if not groups:
         st.info("Select at least one category in the sidebar.")
@@ -572,41 +557,87 @@ def main() -> None:
                 "secs_to_close": _seconds_to_close(ev) or 10**9,
             })
 
-    # ── 🔥 Top plays right now ───────────────────────────────────────────
-    if pre:
-        top_n = 5
-        ranked = sorted(pre, key=lambda x: x["score"], reverse=True)[:top_n]
-        closing = sorted(
-            [p for p in pre if 0 < p["secs_to_close"] < 3600 * 24],
-            key=lambda x: x["secs_to_close"],
-        )[:5]
+    # ── Page-level filter chips (apply to every tab) ──────────────────────
+    closing_window = filter_chip_row(
+        "Closing", ["<1h", "<24h", "All"], state_key="km_closing_window",
+        mode="single", default="All",
+    )
+    score_threshold = filter_chip_row(
+        "Score", ["≥60", "≥80", "All"], state_key="km_score_threshold",
+        mode="single", default="All",
+    )
+    closing_cutoff = {"<1h": 3600, "<24h": 86400}.get(closing_window)
+    score_cutoff = {"≥60": 60.0, "≥80": 80.0}.get(score_threshold, 0.0)
+    filtered_pre = [
+        p for p in pre
+        if (closing_cutoff is None or 0 < p["secs_to_close"] < closing_cutoff)
+        and (p["score"] or 0) >= score_cutoff
+    ]
 
-        st.markdown(
-            "<h3 style='margin-top:0.4em;'>🔥 Top plays right now</h3>"
-            "<p style='color:#94a3b8;font-size:0.85rem;margin:-6px 0 8px 0;'>"
-            "Ranked by <strong>conviction</strong> (how lopsided the price is) · "
-            "<strong>urgency</strong> (closer to close = faster payout) · "
-            "<strong>liquidity</strong> (volume you can actually trade against)."
-            "</p>",
-            unsafe_allow_html=True,
-        )
-        for p in ranked:
-            st.markdown(
-                f"<div style='font-size:0.82rem;color:#cbd5e1;margin:4px 0 -2px 0;'>"
-                f"{p['group']['emoji']} <strong>{p['series_cfg']['label']}</strong></div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                _insight_box(p["headline"], p["why"], p["score"], p["close_lbl"]),
-                unsafe_allow_html=True,
-            )
+    tab_top, tab_crypto, tab_eq, tab_macro, tab_pre = st.tabs(
+        ["Top plays", "Crypto", "Equities", "Macro", "Premortem"]
+    )
 
-        if closing:
+    def _render_play(p: dict) -> None:
+        series_cfg = p["series_cfg"]
+        series_label = series_cfg["label"]
+        market_type = series_cfg["type"]
+        event = p["event"]
+        detail = p["detail"]
+        title = event.get("title") or series_label
+        close_lbl = p["close_lbl"]
+        with st.expander(f"{series_label}", expanded=True):
+            header = f"**{series_label}** — {title}"
+            if close_lbl:
+                header += f"  \n<span style='font-size:0.8rem;color:#94a3b8;'>{close_lbl}</span>"
+            st.markdown(header, unsafe_allow_html=True)
+            if p["headline"]:
+                st.markdown(
+                    _insight_box(p["headline"], p["why"], p["score"], close_lbl),
+                    unsafe_allow_html=True,
+                )
+            try:
+                rec = recommend_play(
+                    event=detail or event,
+                    market_type=market_type,
+                    category=p["group"]["category"],
+                    series_label=series_label,
+                    stake=stake,
+                    weights=weights,
+                    enable_news=enable_news,
+                )
+                _render_play_card(rec)
+            except Exception as e:
+                st.caption(f"🎯 Recommendation unavailable: {e}")
+            if detail and detail.get("markets"):
+                if market_type == "range":
+                    _render_range_event(detail)
+                elif market_type == "binary":
+                    _render_binary_event(detail)
+                elif market_type == "milestone":
+                    _render_milestone_event(detail)
+            else:
+                st.caption("Loading market data…")
+
+    with tab_top:
+        if not filtered_pre:
+            st.caption("No markets match the current chip filters.")
+        else:
+            top_n = 5
+            ranked = sorted(filtered_pre, key=lambda x: x["score"], reverse=True)[:top_n]
+            closing = sorted(
+                [p for p in filtered_pre if 0 < p["secs_to_close"] < 3600 * 24],
+                key=lambda x: x["secs_to_close"],
+            )[:5]
             st.markdown(
-                "<h4 style='margin-top:0.8em;color:#ef4444;'>⏱ Closing within 24h</h4>",
+                "<p style='color:#94a3b8;font-size:0.85rem;margin:0 0 8px 0;'>"
+                "Ranked by <strong>conviction</strong> (how lopsided the price is) · "
+                "<strong>urgency</strong> (closer to close = faster payout) · "
+                "<strong>liquidity</strong> (volume you can actually trade against)."
+                "</p>",
                 unsafe_allow_html=True,
             )
-            for p in closing:
+            for p in ranked:
                 st.markdown(
                     f"<div style='font-size:0.82rem;color:#cbd5e1;margin:4px 0 -2px 0;'>"
                     f"{p['group']['emoji']} <strong>{p['series_cfg']['label']}</strong></div>",
@@ -616,72 +647,53 @@ def main() -> None:
                     _insight_box(p["headline"], p["why"], p["score"], p["close_lbl"]),
                     unsafe_allow_html=True,
                 )
-
-        st.divider()
-
-    # ── Full breakdown by category ────────────────────────────────────────
-    by_group: dict[str, list[dict]] = {}
-    for p in pre:
-        by_group.setdefault(p["group"]["label"], []).append(p)
-
-    for group in groups:
-        cat = group["category"]
-        cat_color = CATEGORY_COLORS.get(cat, "#64748b")
-        st.markdown(
-            f"<h3 style='color:{cat_color};margin-top:1.2em;'>{group['label']}</h3>",
-            unsafe_allow_html=True,
-        )
-        items = by_group.get(group["label"], [])
-        if not items:
-            st.caption("No open Kalshi events for this group right now.")
-            continue
-
-        for p in items:
-            series_cfg = p["series_cfg"]
-            series_label = series_cfg["label"]
-            market_type = series_cfg["type"]
-            event = p["event"]
-            detail = p["detail"]
-            title = event.get("title") or series_label
-            close_lbl = p["close_lbl"]
-
-            with st.expander(f"{series_label}", expanded=True):
-                header = f"**{series_label}** — {title}"
-                if close_lbl:
-                    header += f"  \n<span style='font-size:0.8rem;color:#94a3b8;'>{close_lbl}</span>"
-                st.markdown(header, unsafe_allow_html=True)
-
-                # Insight box explains *why* this market sits where it does.
-                if p["headline"]:
+            if closing:
+                st.markdown(
+                    "<h4 style='margin-top:0.8em;color:#ef4444;'>⏱ Closing within 24h</h4>",
+                    unsafe_allow_html=True,
+                )
+                for p in closing:
                     st.markdown(
-                        _insight_box(p["headline"], p["why"], p["score"], close_lbl),
+                        f"<div style='font-size:0.82rem;color:#cbd5e1;margin:4px 0 -2px 0;'>"
+                        f"{p['group']['emoji']} <strong>{p['series_cfg']['label']}</strong></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        _insight_box(p["headline"], p["why"], p["score"], p["close_lbl"]),
                         unsafe_allow_html=True,
                     )
 
-                # 🎯 Triangulated play card — the concrete recommendation.
-                try:
-                    rec = recommend_play(
-                        event=detail or event,
-                        market_type=market_type,
-                        category=group["category"],
-                        series_label=series_label,
-                        stake=stake,
-                        weights=weights,
-                        enable_news=enable_news,
-                    )
-                    _render_play_card(rec)
-                except Exception as e:
-                    st.caption(f"🎯 Recommendation unavailable: {e}")
-
-                if detail and detail.get("markets"):
-                    if market_type == "range":
-                        _render_range_event(detail)
-                    elif market_type == "binary":
-                        _render_binary_event(detail)
-                    elif market_type == "milestone":
-                        _render_milestone_event(detail)
+    for cat_name, tab in (("Crypto", tab_crypto), ("Equities", tab_eq), ("Macro", tab_macro)):
+        with tab:
+            cat_items = [p for p in filtered_pre if p["group"]["category"] == cat_name]
+            if not cat_items:
+                if not any(g["category"] == cat_name for g in groups):
+                    st.info(f"Add '{cat_name}' to the Categories sidebar filter to see markets here.")
                 else:
-                    st.caption("Loading market data…")
+                    st.caption(f"No {cat_name} markets match the current chip filters.")
+                continue
+            cat_color = CATEGORY_COLORS.get(cat_name, "#64748b")
+            st.markdown(
+                f"<p style='color:{cat_color};font-size:0.85rem;margin:0 0 8px 0;'>"
+                f"{len(cat_items)} {cat_name} market{'s' if len(cat_items) != 1 else ''} after filters."
+                f"</p>",
+                unsafe_allow_html=True,
+            )
+            for p in cat_items:
+                _render_play(p)
+
+    with tab_pre:
+        render_premortem_panel(
+            key_prefix="kalshi-markets-premortem",
+            default_horizon="intraday",
+            compact=True,
+            expanded=True,
+            intro=(
+                "Premortem a Kalshi play before you click YES/NO. Paste the market, "
+                "your side, the edge you think you have, and the stop/exit — Claude "
+                "returns the failure modes most likely to ruin it before close."
+            ),
+        )
 
     st.divider()
     st.caption(
