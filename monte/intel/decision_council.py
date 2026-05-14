@@ -237,20 +237,18 @@ def _ai_verdict(payload: dict[str, Any]) -> tuple[Optional[float], Optional[str]
     )
 
     try:
-        import os as _os
-        _base_url = (
-            _os.environ.get("ANTHROPIC_BASE_URL")
-            or _os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
+        api_key = (
+            os.environ.get("ANTHROPIC_API_KEY")
+            or os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY")
         )
-        _api_key = (
-            _os.environ.get("ANTHROPIC_API_KEY")
-            or _os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY")
+        base_url = (
+            os.environ.get("ANTHROPIC_BASE_URL")
+            or os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
         )
         client = (
-            anthropic.Anthropic(api_key=_api_key, base_url=_base_url)
-            if _base_url
-            else anthropic.Anthropic(api_key=_api_key) if _api_key
-            else anthropic.Anthropic()
+            anthropic.Anthropic(api_key=api_key, base_url=base_url)
+            if base_url
+            else anthropic.Anthropic(api_key=api_key)
         )
         msg = client.messages.create(
             model="claude-haiku-4-5",   # cheap + fast for per-trade calls

@@ -722,10 +722,11 @@ def _render_decision_row(
         # shown small/grey beside it for transparency.
         mq_badge = ""
         if mq_factor < 1.0:
+            _mq_tip = html.escape(str(mq_label), quote=True)
             mq_badge = (
-                f"<span style='display:inline-block;margin-left:6px;padding:1px 6px;"
-                f"font-size:0.7rem;border-radius:4px;background:rgba(168,38,31,0.15);"
-                f'color:#a8261f;font-weight:600;\' title="{html.escape(str(mq_label), quote=True)}">'
+                '<span style="display:inline-block;margin-left:6px;padding:1px 6px;'
+                'font-size:0.7rem;border-radius:4px;background:rgba(168,38,31,0.15);'
+                f'color:#a8261f;font-weight:600;" title="{_mq_tip}">'
                 f"⚠ EV ×{mq_factor:.1f}</span>"
             )
 
