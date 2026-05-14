@@ -1,0 +1,78 @@
+# Slice-by-slice assessment of your Live Signals app
+
+I walked through every page. Here's what I found, what to trigger at 6 am PST, and the cleanup I'd push next.
+
+## What's actually working vs. broken right now
+
+**Live Signals (home)** — Engine prints, data is **8 hours stale**, all 4 symbols are STAND DOWN (SPY 29%, SOL 55%, ETH 43%, BTC 41%). Today/Week/Month/YTD P&L all $0. Verdict: it's running but there's a refresh problem — the home claims "auto-refresh 30s" yet the cards say "updated 8h ago." Either the scheduler died or yfinance is throttled. **Fix before market open.**
+
+**Crypto Watchlist** — This is actually the *useful* live page. 5m candles refreshing every 5s, RSI/MACD/BB/ADX, news check, factor breakdown, composite signals. BTC RSI 50, SOL RSI 55, ETH RSI 46 — all neutral HOLDs. VWAP reversion says STRONG BUY on ETH (-3.13% below VWAP). This is the page I'd actually drive from.
+
+**Pattern Explorer** — Empty (0 vectors). Cold start. Needs the ingest backfill or it's just a chart.
+
+**Budget & Paper Portfolio** — $500 cash, 0 positions. Shows the same 4 stale "stand down" cards as suggested orders. Risk sizing logic is sound (0.5–1.5% scaled by conviction, brake at -10%).
+
+**Backtest / Backtest Results** — No runs yet. Dead until you trigger one.
+
+**Trade History** — (didn't open separately; presumably empty since no trades).
+
+**Playbook** — This is the *crown jewel* and you're underusing it. **211 verdicts logged, only 4 settled, hit rate 0%, avg ROI -100%.** The 8-bit signature engine (EDGE·KELLY·EV·CONV·LIQ·CAL·TRI·PRE) is working but you have *one* settled signature (11110100) and it's losing 100% across 4 outcomes. Until you accumulate ≥5 settled per signature the council multipliers stay at 1.00× — you have no learning loop yet.
+
+**Goal Plan** — Equity $500 → $15,000 by Nov 13, 2026, 183 days left, **requires 13.89%/week, 75.95%/month**. Marked "behind pace · push or extend deadline." That target is mathematically aggressive (≈30x in 6 months); plan to either extend the deadline or accept it as aspirational.
+
+**Kalshi Crypto** — The hybrid pricer is the strongest page conceptually: Coinbase WS spot + Kalshi book every 3s, edge ≥4pp · EV ≥2¢, deep-links to Kalshi (no money moves through your app — good). When it loads I saw a BTC 15-min Up/Down council verdict at "ALMOST THERE 65/100" (YES at 13:00 UTC). When I revisited, the page rendered empty. **Inconsistent render — investigate.**
+
+**Kalshi Markets** — Top-level prediction-market browser. Showed CPI YoY play score 67 (98% on 3.0), Fed funds 0.00% play 62, BTC $150k by Jan 2027 play 59, BTC daily range play 58, S&P range play 45. Useful but the "play score" definition isn't on the page.
+
+**Premortem** — Solid concept (Klein's premortem + Claude). Empty form. This is a *manual* tool you'd hit before clicking buy on a high-conviction Kalshi trade.
+
+## Today's read for 6 am PST start
+
+Reading the data as of right now:
+
+**Macro tape:** SPY $742, above its 200-day → risk-on regime per home, but some cards contradict and call it defensive — that contradiction is a bug. Treat the macro as **mixed/neutral** until you reconcile.
+
+**Crypto tape:** BTC 79.4k consolidating, SOL 90.9 mid-channel uptrend (ADX 26), ETH 2,254 in confirmed downtrend (ADX 48). VWAP fade is screaming STRONG BUY on ETH but trend regime is bearish — classic mean-reversion vs. trend conflict. **No clean signal.**
+
+**Kalshi triggers I'd watch at the open:**
+1. **BTC 15-min Up/Down 13:00 UTC (≈6 am PST):** the council had it at 65/100 ALMOST THERE earlier. If by 5:55 am PST the edge ≥4pp and EV ≥2¢ filters fire AND BTC is still consolidating in the $79.2–79.6k pocket, that's your *primary* trigger. Stake = 0.5% ($2.50) since signature track record is thin.
+2. **BTC daily range $79,500–79,999** (Kalshi Markets play score 58): currently 11% YES. If spot sticks within that range past 8 am PST without macro news, the YES side has positive drift. Watch, don't pre-fire.
+3. **CPI YoY next print (play 67)** and **Fed funds next meeting (play 62):** these are event-driven, not 6 am triggers — skip until print day.
+4. **ETH VWAP fade:** **do NOT take this as a Kalshi long.** Trend regime is -1.00, ADX 48 — fade trades against confirmed downtrends are widow-makers. Skip.
+
+**My recommended 6 am PST action sheet:**
+1. Open in this order: **Crypto Watchlist → Kalshi Crypto → Playbook → Premortem (only if firing) → Budget**. Skip Backtest, Pattern Explorer, Kalshi Markets unless an event is printing.
+2. **Hard rule:** if Live Signals still shows "updated 8h ago" at 6 am, *do not trade off it*. Trust Crypto Watchlist + Kalshi Crypto live spot only.
+3. **One trade max** before 7 am PST, sized 0.5% ($2.50 risk) — your Playbook hit rate is 0% on settled, so size *down* until you get ≥5 settled wins per signature.
+4. **Premortem every Kalshi trade** before clicking the deep-link. Paste the 8-bit signature and let Claude flag failure modes.
+5. **Stop conditions:** -2% on equity ($490) = walk away for the day. -5% = halve sizing per Goal Plan. Today is not the day to push.
+
+## What you should fix / consolidate (UX is the bottleneck)
+
+**Page consolidation — 14 pages is too many.** I'd merge them into 5:
+
+1. **Dashboard** = Live Signals + Goal Plan + Budget Portfolio summary in one scroll. Right now you toggle three pages for the same P&L number.
+2. **Stocks/Crypto Live** = Crypto Watchlist (this is your best page, promote it). Add a "stocks" tab toggle.
+3. **Kalshi** = merge Kalshi Crypto + Kalshi Markets into one page with two tabs (Hybrid Pricer / Prediction Browser). Right now Kalshi data is split for no clear reason.
+4. **Playbook & Backtest** = pattern memory + backtest results + trade history in one "Learning" page. They're all "look-back" data.
+5. **Tools** = Premortem + Pattern Explorer + Settings. Click-on-demand utilities.
+
+**Concrete enhancements I'd build before next week:**
+
+- **Stale-data badge** on every page header showing "data age: 2s / 8h / cold." If >5 min on a live page, *block* the paper-buy buttons. The fact that you can paper-buy off 8h-old SPY data is the worst usability hole.
+- **Unified P&L bar** at the top of every page (Today / Week / Month / DD). Right now it's on home, Budget, and Goal Plan — three sources of truth.
+- **One "ACT NOW" tray** docked at the top of every page: pulls the highest-confidence signal across Crypto Watchlist + Kalshi Crypto. Today you have to manually visit 3 pages to know if anything's worth doing.
+- **Kalshi Crypto blank-state bug**: confirm whether it's a JS race condition on first paint vs. data-fetch failure. Add a "no qualifying markets above thresholds" message so empty ≠ broken.
+- **Playbook signature explorer**: let me click a signature and see *which markets* logged it and *which trades* settled. Right now it's a flat table — you can't drill in.
+- **Premortem auto-loader**: when you fire a Kalshi trade with score ≥70, auto-populate the Premortem with the council scorecard. One click instead of paste.
+- **Goal Plan reality check**: 13.89%/week is unrealistic for paper-trading a 4-symbol macro engine. Add a slider that recomputes required deadline at *historical* hit rate (currently 0%) so you stop chasing a number that demands -100% ROI signatures to reverse first.
+- **Reconcile macro regime contradiction**: home cards say "SPY below 200-day defensive" for some symbols and "above 200-day risk-on" for others at the same SPY $742 price. One of those branches is reading a stale snapshot. Pick one source of truth.
+- **Add a "Today's plan" page**: pre-market checklist that runs at 5:30 am PST and prints: data freshness, top 3 Kalshi plays by score, current DD, allowed risk per trade today, any events on the calendar (CPI / Fed). One page, 5-second read.
+
+## Bottom line for today
+
+The infrastructure is impressive — 14 surfaces, 8-bit signature learning, hybrid Kalshi pricer, Claude-backed premortem — but the *decision speed* is poor because the same data is scattered across multiple pages, stale data isn't flagged, and the two Kalshi pages don't talk to each other. **You're losing minutes hunting for the trigger.**
+
+For 6 am PST tomorrow: don't trade off Live Signals (stale). Use Crypto Watchlist as your tape, Kalshi Crypto for the trigger, Premortem before clicking, 0.5% sizing only. If BTC 15-min YES at 13:00 UTC is still showing edge ≥4pp and EV ≥2¢, that's your one play. Otherwise sit out — the council has 211 logged and 0% hit rate, which is the universe telling you to wait for more data, not push harder.
+
+Tell me which enhancements you want to tackle first and I'll prioritize the implementation order.
