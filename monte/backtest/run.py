@@ -39,6 +39,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--min-edge-pp", type=float, default=DEFAULT_MIN_EDGE_PP)
     p.add_argument("--min-ev-cents", type=float, default=DEFAULT_MIN_EV_CENTS)
     p.add_argument("--timeout-bars", type=int, default=DEFAULT_TIMEOUT_BARS)
+    p.add_argument(
+        "--bootstrap-tracker", action="store_true",
+        help="After a kalshi run, mirror every synthetic trade into "
+             "the pattern tracker so council multipliers reflect "
+             "back-tested hit rates immediately.",
+    )
     args = p.parse_args(argv)
 
     base = BacktestConfig(
@@ -61,6 +67,21 @@ def main(argv: list[str] | None = None) -> int:
               f"{r.n_trades:>8}  {r.run_id}")
         if r.error:
             print(f"  error: {r.error}")
+
+    if args.bootstrap_tracker:
+        from monte.learning.bootstrap import bootstrap_from_backtest
+        for r in results:
+            if r.engine != "kalshi" or r.status != "ok":
+                continue
+            summary = bootstrap_from_backtest(run_id=r.run_id, db_path=base.db_path)
+            print(
+                f"  bootstrap-tracker[{r.run_id}]: "
+                f"+{summary['verdicts_written']} verdicts, "
+                f"+{summary['outcomes_written']} outcomes "
+                f"(skipped {summary['skipped_pass']} PASS, "
+                f"{summary['skipped_dup']} dup)"
+            )
+
     bad = [r for r in results if r.status != "ok"]
     return 1 if bad else 0
 
