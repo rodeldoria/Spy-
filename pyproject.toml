@@ -19,12 +19,16 @@ dependencies = [
     "pytest>=9.0.3",
     "ruff>=0.15.12",
     "anthropic>=0.101.0",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "ruff>=0.4",
+]
+regime = [
+    "hmmlearn>=0.3",
 ]
 
 [tool.setuptools.packages.find]
