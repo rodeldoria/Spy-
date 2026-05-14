@@ -632,6 +632,180 @@ def signal_guide() -> None:
         )
 
 
+def betting_glossary() -> None:
+    """Beginner-mode expander that explains Kalshi card terminology
+    using football / sports-betting analogies. Mirrors signal_guide()."""
+
+    sections = [
+        {
+            "title": "Reading the price",
+            "border": "#2563eb",
+            "bg": "rgba(37,99,235,0.08)",
+            "rows": [
+                (
+                    "YES @ 8¢ (12.50x)",
+                    "Like a longshot moneyline. Risk 8¢ to win $1. "
+                    "The 12.50x is your payout multiplier — roughly +1150 odds.",
+                ),
+                (
+                    "NO @ 94¢ (1.06x)",
+                    "Heavy favorite. Risk 94¢ to win 6¢ net — like a "
+                    "−1567 moneyline. Tiny payout because NO is heavily favored.",
+                ),
+                (
+                    "book %",
+                    "The sportsbook's implied chance the bet wins. "
+                    "Vegas's number on the team.",
+                ),
+                (
+                    "model %",
+                    "Our scouting report's own number — what we think the "
+                    "true win chance is.",
+                ),
+                (
+                    "edge (pp)",
+                    "How much our scouting beats Vegas, in points (pp = "
+                    "percentage points). +7.2pp means our number is 7.2 "
+                    "points higher than the bookie's line. Bigger edge = "
+                    "bigger mispricing.",
+                ),
+                (
+                    "Calibrated YES prob",
+                    "Same scouting number, adjusted after grading our past "
+                    "picks. Like a coach who corrects for his own bias "
+                    "after watching the film.",
+                ),
+                (
+                    "Conviction %",
+                    "How much we trust the call — separate from win "
+                    "probability. 45% conviction = we're 45% confident in "
+                    "our own read, not 45% confident YES wins.",
+                ),
+            ],
+        },
+        {
+            "title": "Knowing if it's worth it",
+            "border": "#0a7d2a",
+            "bg": "rgba(10,125,42,0.08)",
+            "rows": [
+                (
+                    "Net breakeven %",
+                    "After the sportsbook's vig, the minimum hit rate you "
+                    "need to not lose money. \"You have to win 8.9% of "
+                    "these longshots just to break even after the rake.\"",
+                ),
+                (
+                    "buffer (pp)",
+                    "Cushion between our model number and breakeven. "
+                    "+5.3pp = 5.3 points of air before you slip into the "
+                    "red. Negative buffer means the bet doesn't clear the "
+                    "vig.",
+                ),
+                (
+                    "Bet $10 → +$X / −$10",
+                    "Standard payout math. Risk $10, win $X net if it "
+                    "hits, lose your $10 stake if it doesn't.",
+                ),
+                (
+                    "ctr (contracts)",
+                    "Tickets. At 8¢ each, $10 buys you 125 contracts — "
+                    "each pays $1 if YES wins.",
+                ),
+                (
+                    "fees on win",
+                    "The house rake — only taken when you win. Already "
+                    "baked into the E[net] number.",
+                ),
+                (
+                    "E[net]",
+                    "Expected net profit if you ran this exact bet many "
+                    "times. \"If you played this Sunday matchup 100 weeks "
+                    "in a row, you'd average +$7.59 per game.\" The "
+                    "long-run grade of the bet.",
+                ),
+                (
+                    "net EV ¢/$1",
+                    "Expected value per $1 wagered, after fees. +75.9¢/$1 "
+                    "= for every $1 you risk, you net +75.9¢ on average "
+                    "across many tries.",
+                ),
+                (
+                    "ann. %/yr",
+                    "What that EV looks like annualized — season-long ROI "
+                    "rate if every game looked like this one. Big number, "
+                    "but it's a rate, not a guarantee.",
+                ),
+            ],
+        },
+        {
+            "title": "How much to bet",
+            "border": "#b45309",
+            "bg": "rgba(180,83,9,0.08)",
+            "rows": [
+                (
+                    "Half-Kelly bet ($, %)",
+                    "Recommended stake. Full Kelly is the math-optimal "
+                    "max-growth bet, but it's volatile — Half-Kelly is "
+                    "the conservative-coach version, half the playbook so "
+                    "one bad game doesn't blow up the bankroll. The % is "
+                    "the share of your bankroll.",
+                ),
+                (
+                    "Closes in / σ %/min",
+                    "Game clock until the bet settles, plus how jumpy "
+                    "the price is per minute — a team's volatility / "
+                    "blowout factor.",
+                ),
+            ],
+        },
+    ]
+
+    with st.expander("📘 Beginner Mode — what do these numbers mean?", expanded=False):
+        st.markdown(
+            "<p style='color:var(--text-muted,#888);font-size:0.85rem;margin-bottom:0.75rem;'>"
+            "New here? Every term on a Kalshi card translated into football / "
+            "sports-betting language."
+            "</p>",
+            unsafe_allow_html=True,
+        )
+        for section in sections:
+            rows_html = "".join(
+                f"<div style='display:flex;gap:14px;align-items:flex-start;"
+                f"padding:6px 0;border-top:1px solid rgba(127,127,127,0.12);'>"
+                f"<div style='flex:0 0 165px;font-weight:700;font-size:0.86rem;"
+                f"color:#e2e8f0;'>{term}</div>"
+                f"<div style='flex:1;font-size:0.85rem;line-height:1.5;'>{desc}</div>"
+                f"</div>"
+                for term, desc in section["rows"]
+            )
+            st.markdown(
+                f"""
+                <div style='
+                    border-left:4px solid {section["border"]};
+                    background:{section["bg"]};
+                    border-radius:8px;
+                    padding:10px 16px 12px 16px;
+                    margin-bottom:10px;
+                '>
+                  <div style='font-weight:700;font-size:0.95rem;letter-spacing:0.02em;
+                              color:{section["border"]};margin-bottom:4px;'>
+                    {section["title"]}
+                  </div>
+                  {rows_html}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        st.markdown(
+            "<p style='color:#888;font-size:0.78rem;margin-top:4px;'>"
+            "All numbers are paper-trade simulations only — no real money is "
+            "at risk. Calibration is based on past settled markets and does "
+            "not guarantee future results."
+            "</p>",
+            unsafe_allow_html=True,
+        )
+
+
 def pnl_strip(daily: float, weekly: float, monthly: float, ytd: float) -> None:
     def _fmt(v: float) -> str:
         sign = "+" if v >= 0 else "−"

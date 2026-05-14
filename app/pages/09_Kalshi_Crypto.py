@@ -23,7 +23,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 from app._shared import setup_page
-from app._ui import inject_global_css, status_pill
+from app._ui import betting_glossary, inject_global_css, status_pill
 from app.kalshi import (
     CouncilResult,
     Decision,
@@ -1361,6 +1361,8 @@ def main() -> None:
         f"{status_pill(datetime.now(timezone.utc).strftime('%H:%M:%S UTC'), 'muted')}",
         unsafe_allow_html=True,
     )
+
+    betting_glossary()
 
     if not symbols or not horizons:
         st.warning("Pick at least one symbol and one horizon in the sidebar.")
