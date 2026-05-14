@@ -12,6 +12,7 @@ import time
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
+from app._chat_widget import render_event_chat_widget
 from app._shared import setup_page, sidebar_watchlists
 from app._ui import (
     act_now_banner,
@@ -146,6 +147,9 @@ def main() -> None:
     inject_global_css()
 
     crypto, stocks = sidebar_watchlists()
+
+    # Event-aware chat surface — drop a chart, get a multi-axis verdict.
+    render_event_chat_widget(key_prefix="home")
 
     with st.sidebar:
         st.subheader("Scan")
