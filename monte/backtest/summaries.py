@@ -60,6 +60,20 @@ def _empty(cols: tuple[str, ...]) -> pd.DataFrame:
     return pd.DataFrame({c: pd.Series(dtype="object") for c in cols})
 
 
+def _is_missing_table(exc: BaseException) -> bool:
+    """True if the exception is the specific 'no such table' SQLite error.
+
+    We deliberately only swallow this narrow case so that unrelated DB
+    faults (malformed SQL, corruption, locking) still surface with their
+    real traceback instead of silently rendering as empty results.
+    """
+    msg = str(exc).lower()
+    if "no such table" in msg:
+        return True
+    cause = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
+    return cause is not None and "no such table" in str(cause).lower()
+
+
 def list_runs(*, db_path: Path | None = None, limit: int = 200) -> pd.DataFrame:
     try:
         with _connect(db_path) as conn:
@@ -69,8 +83,10 @@ def list_runs(*, db_path: Path | None = None, limit: int = 200) -> pd.DataFrame:
                 "FROM runs ORDER BY ts_started DESC LIMIT ?",
                 conn, params=(limit,),
             )
-    except (sqlite3.OperationalError, pd.errors.DatabaseError):
-        return _empty(_RUNS_COLS)
+    except (sqlite3.OperationalError, pd.errors.DatabaseError) as exc:
+        if _is_missing_table(exc):
+            return _empty(_RUNS_COLS)
+        raise
 
 
 def overview_kpis(*, db_path: Path | None = None, run_ids: list[str] | None = None
@@ -94,8 +110,10 @@ def overview_kpis(*, db_path: Path | None = None, run_ids: list[str] | None = No
                 """,
                 conn, params=params,
             )
-    except (sqlite3.OperationalError, pd.errors.DatabaseError):
-        return _empty(_OVERVIEW_COLS)
+    except (sqlite3.OperationalError, pd.errors.DatabaseError) as exc:
+        if _is_missing_table(exc):
+            return _empty(_OVERVIEW_COLS)
+        raise
 
 
 def signal_table(*, db_path: Path | None = None, run_ids: list[str] | None = None,
@@ -119,8 +137,10 @@ def signal_table(*, db_path: Path | None = None, run_ids: list[str] | None = Non
                 """,
                 conn, params=params,
             )
-    except (sqlite3.OperationalError, pd.errors.DatabaseError):
-        return _empty(_SIGNAL_COLS)
+    except (sqlite3.OperationalError, pd.errors.DatabaseError) as exc:
+        if _is_missing_table(exc):
+            return _empty(_SIGNAL_COLS)
+        raise
 
 
 def trade_ledger(*, db_path: Path | None = None, run_ids: list[str] | None = None,
@@ -150,8 +170,10 @@ def trade_ledger(*, db_path: Path | None = None, run_ids: list[str] | None = Non
                 """,
                 conn, params=params,
             )
-    except (sqlite3.OperationalError, pd.errors.DatabaseError):
-        return _empty(_LEDGER_COLS)
+    except (sqlite3.OperationalError, pd.errors.DatabaseError) as exc:
+        if _is_missing_table(exc):
+            return _empty(_LEDGER_COLS)
+        raise
 
 
 def _where_runs(run_ids: list[str] | None) -> tuple[str, list]:
