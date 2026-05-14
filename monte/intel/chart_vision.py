@@ -87,7 +87,15 @@ def read_chart(
         return _heuristic_read(error="anthropic SDK not installed")
 
     try:
-        client = anthropic.Anthropic(api_key=api_key)
+        base_url = (
+            os.environ.get("ANTHROPIC_BASE_URL")
+            or os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
+        )
+        client = (
+            anthropic.Anthropic(api_key=api_key, base_url=base_url)
+            if base_url
+            else anthropic.Anthropic(api_key=api_key)
+        )
         msg = client.messages.create(
             model=model or os.environ.get("ANTHROPIC_VISION_MODEL") or DEFAULT_MODEL,
             max_tokens=_MAX_TOKENS,

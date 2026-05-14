@@ -16,6 +16,8 @@ where the book and the vol model disagree.
 
 from __future__ import annotations
 
+import html
+
 import time
 from datetime import datetime, timezone
 
@@ -128,8 +130,8 @@ def _direction_pill(direction: str, confidence: float) -> str:
     return (
         f"<span class='spy-pill' style='color:{fg};background:{bg};"
         f"font-size:0.95rem;padding:4px 12px;font-weight:700;' "
-        f"title='Conviction is a logistic of edge size: 4pp=50%, 8pp=~85%, 12pp=90%, 20pp≈99%.'>"
-        f"{emoji} {direction}{suffix}</span>"
+        f'title="Conviction is a logistic of edge size: 4pp=50%, 8pp=~85%, 12pp=90%, 20pp≈99%.">'
+        f"{html.escape(emoji)} {html.escape(str(direction))}{html.escape(suffix)}</span>"
     )
 
 
@@ -543,12 +545,16 @@ def _council_pill(council: CouncilResult) -> str:
     else:
         fg, bg, label = "#5b6470", "#f1f3f5", "NOT ARMED"
     failed = ", ".join(c.name for c in council.failed_checks) or "none"
+    tip = html.escape(
+        "Council score reuses edge/EV/Kelly/conviction/liquidity from "
+        f"score_market. Failed: {failed}.",
+        quote=True,
+    )
     return (
         f"<span class='spy-pill' style='color:{fg};background:{bg};"
         f"font-size:0.82rem;padding:3px 9px;font-weight:700;' "
-        f"title='Council score reuses edge/EV/Kelly/conviction/liquidity from score_market. "
-        f"Failed: {failed}.'>"
-        f"COUNCIL {council.score_label} · {label}</span>"
+        f'title="{tip}">'
+        f"COUNCIL {html.escape(str(council.score_label))} · {html.escape(label)}</span>"
     )
 
 
@@ -560,11 +566,12 @@ def _opinion_pill(opinion: Opinion) -> str:
         "SKIPPED": ("#5b6470", "#f1f3f5", "— SKIPPED"),
     }
     fg, bg, label = palette.get(opinion.verdict, palette["SKIPPED"])
+    tip = html.escape((opinion.reasoning or "")[:300], quote=True)
     return (
         f"<span class='spy-pill' style='color:{fg};background:{bg};"
         f"font-size:0.82rem;padding:3px 9px;font-weight:700;' "
-        f"title='{opinion.reasoning[:300]}'>"
-        f"🤖 CLAUDE {label}</span>"
+        f'title="{tip}">'
+        f"🤖 CLAUDE {html.escape(label)}</span>"
     )
 
 
@@ -715,7 +722,7 @@ def _render_decision_row(
             mq_badge = (
                 f"<span style='display:inline-block;margin-left:6px;padding:1px 6px;"
                 f"font-size:0.7rem;border-radius:4px;background:rgba(168,38,31,0.15);"
-                f"color:#a8261f;font-weight:600;' title='{mq_label}'>"
+                f'color:#a8261f;font-weight:600;\' title="{html.escape(str(mq_label), quote=True)}">'
                 f"⚠ EV ×{mq_factor:.1f}</span>"
             )
 
@@ -1157,11 +1164,11 @@ def _render_symbol(
                 for s in bundle.top:
                     cc = {"bull": "#0a7d2a", "bear": "#a8261f", "neutral": "#6b7280"}[s.direction]
                     chips.append(
-                        f"<span title=\"{s.note}\" "
+                        f'<span title="{html.escape(str(s.note), quote=True)}" '
                         f"style='display:inline-block;padding:3px 8px;margin:2px 4px 2px 0;"
                         f"border-radius:10px;background:rgba(107,114,128,0.10);"
                         f"font-size:0.78rem;color:{cc};font-weight:600;'>"
-                        f"{s.emoji} {s.name} {s.bias_pp:+.1f}pp</span>"
+                        f"{html.escape(str(s.emoji))} {html.escape(str(s.name))} {s.bias_pp:+.1f}pp</span>"
                     )
                 st.markdown(
                     f"<div style='margin:4px 0 8px 0;font-size:0.82rem;'>"

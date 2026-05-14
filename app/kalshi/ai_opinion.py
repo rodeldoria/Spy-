@@ -118,7 +118,15 @@ def get_opinion(
             elapsed_ms=0,
         )
 
-    client = anthropic.Anthropic(api_key=api_key)
+    base_url = (
+        os.environ.get("ANTHROPIC_BASE_URL")
+        or os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
+    )
+    client = (
+        anthropic.Anthropic(api_key=api_key, base_url=base_url)
+        if base_url
+        else anthropic.Anthropic(api_key=api_key)
+    )
     model_id = model or os.environ.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
 
     start = time.time()

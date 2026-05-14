@@ -214,7 +214,10 @@ def _ai_verdict(payload: dict[str, Any]) -> tuple[Optional[float], Optional[str]
     """Ask Claude for a 0-100 trigger score + a 2-sentence verdict.
     Returns (score, summary, error). All None if the SDK is unavailable
     or the API key isn't set."""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not (
+        os.environ.get("ANTHROPIC_API_KEY")
+        or os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY")
+    ):
         return None, None, "ANTHROPIC_API_KEY not set."
     try:
         import anthropic
@@ -234,7 +237,21 @@ def _ai_verdict(payload: dict[str, Any]) -> tuple[Optional[float], Optional[str]
     )
 
     try:
-        client = anthropic.Anthropic()
+        import os as _os
+        _base_url = (
+            _os.environ.get("ANTHROPIC_BASE_URL")
+            or _os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
+        )
+        _api_key = (
+            _os.environ.get("ANTHROPIC_API_KEY")
+            or _os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY")
+        )
+        client = (
+            anthropic.Anthropic(api_key=_api_key, base_url=_base_url)
+            if _base_url
+            else anthropic.Anthropic(api_key=_api_key) if _api_key
+            else anthropic.Anthropic()
+        )
         msg = client.messages.create(
             model="claude-haiku-4-5",   # cheap + fast for per-trade calls
             max_tokens=300,

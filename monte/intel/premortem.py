@@ -233,7 +233,15 @@ def _ai_premortem(
         return None, "anthropic SDK not installed"
 
     try:
-        client = anthropic.Anthropic(api_key=api_key)
+        base_url = (
+            os.environ.get("ANTHROPIC_BASE_URL")
+            or os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
+        )
+        client = (
+            anthropic.Anthropic(api_key=api_key, base_url=base_url)
+            if base_url
+            else anthropic.Anthropic(api_key=api_key)
+        )
         msg = client.messages.create(
             model=model,
             max_tokens=_MAX_TOKENS,
