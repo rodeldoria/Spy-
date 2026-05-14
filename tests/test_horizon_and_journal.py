@@ -45,8 +45,9 @@ def test_detector_strong_uptrend_returns_buy():
     alert = detect(_ramp_df(closes), symbol="TEST", timeframe="1h")
     assert alert.action in {Action.BUY, Action.STRONG_BUY}
     assert alert.score > 0
-    # 5 weighted factors must populate
-    assert len(alert.contributions) == 5
+    # 7 weighted factors must populate: RSI, MACD, Bollinger, Trend,
+    # Regime, Volume, Momentum ROC (the "Monte Edge" 7-factor signal stack).
+    assert len(alert.contributions) == 7
     assert set(alert.indicator_snapshot) >= {"rsi", "bb_pctb", "macd_hist", "adx", "atr_pct"}
 
 

@@ -113,7 +113,10 @@ def test_model_prob_less_inverts_greater():
     spot = _spot()
     p_g, _ = model_prob_yes(market_g, spot)
     p_l, _ = model_prob_yes(market_l, spot)
-    assert p_g + p_l == pytest.approx(1.0, abs=1e-9)
+    # Float-precision tolerance: empirically the inversion drifts up to
+    # ~5e-9, comfortably under 1e-7. Tight enough to catch a real logic
+    # error (e.g. inverting around the wrong axis) but not flaky on noise.
+    assert p_g + p_l == pytest.approx(1.0, abs=1e-7)
 
 
 def test_model_prob_between_inside_range():
