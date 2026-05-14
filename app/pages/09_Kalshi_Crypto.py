@@ -685,15 +685,18 @@ def _render_decision_row(
                 sym_guess = s
                 break
 
+        _safe_title = html.escape(str(d.title))
+        _safe_bet = html.escape(str(d.bet_summary)) if d.bet_summary else ""
+        _safe_src = html.escape(str(d.spot_source))
         cols[0].markdown(
-            f"**{d.title}**  \n"
+            f"**{_safe_title}**  \n"
             f"<span class='spy-meta'>Closes in <span class='kalshi-countdown' "
             f"data-close-ts='{d.close_time:.0f}'>{_countdown(d.horizon_seconds)}</span> · "
             f"Spot <span class='kalshi-spot-live' data-symbol='{sym_guess}'>"
             f"${d.spot_price:,.2f}</span> "
-            f"({d.spot_source}) · σ {d.sigma_per_min*100:.3f}%/min</span>  \n"
+            f"({_safe_src}) · σ {d.sigma_per_min*100:.3f}%/min</span>  \n"
             + (f"<span style='color:#2563eb;font-weight:600;font-size:0.85rem;'>"
-               f"📌 Bet: {d.bet_summary}</span>" if d.bet_summary else "")
+               f"📌 Bet: {_safe_bet}</span>" if d.bet_summary else "")
             + calib_line,
             unsafe_allow_html=True,
         )
