@@ -46,8 +46,15 @@ def _render_alert_row(r: dict) -> None:
     target = r.get("target", 0)
     rr = r.get("rr", 0)
 
+    # When Monte Edge demotes a signal to STAND_DOWN, the underlying detect()
+    # action may still read BUY/SELL — showing both pills together (e.g.
+    # "BUY · Stand down 48%") is contradictory. The tier is the verdict
+    # the user should follow, so we suppress the action pill in that case.
     if tier:
-        pills = f"{tier_pill(tier, conf)} {action_pill(action)} {freshness_pill(r.get('ts'))}"
+        if str(tier).upper() == "STAND_DOWN":
+            pills = f"{tier_pill(tier, conf)} {freshness_pill(r.get('ts'))}"
+        else:
+            pills = f"{tier_pill(tier, conf)} {action_pill(action)} {freshness_pill(r.get('ts'))}"
     else:
         pills = f"{action_pill(action, conf)} {freshness_pill(r.get('ts'))}"
 

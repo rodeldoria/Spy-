@@ -81,9 +81,9 @@ def main() -> None:
     progress.empty()
     if not out:
         st.info(
-            "No alerts have enough forward data yet to evaluate. "
-            "(Data is flowing — but each alert needs `horizon` bars after "
-            "its timestamp before it can be scored.)"
+            f"No alerts have enough forward data yet to evaluate. "
+            f"(Data is flowing — but each alert needs **{horizon} bars** after "
+            f"its timestamp before it can be scored.)"
         )
         return
 

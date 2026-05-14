@@ -527,8 +527,10 @@ def _render_council_panel(
         f"</div>",
         unsafe_allow_html=True,
     )
+    _n_verd = len(verdicts)
+    _verd_noun = "opportunity" if _n_verd == 1 else "opportunities"
     with st.expander(
-        f"Show full council scorecards ({len(verdicts)} opportunities)",
+        f"Show full council scorecards ({_n_verd} {_verd_noun})",
         expanded=(top[1].trigger_score >= 60),
     ):
         for d, v in verdicts[:5]:

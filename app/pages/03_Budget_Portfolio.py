@@ -12,7 +12,6 @@ from app._ui import (
     inject_global_css,
     loading,
     pnl_strip,
-    signal_guide,
     status_pill,
     target_progress,
     tier_pill,
@@ -158,7 +157,8 @@ def main() -> None:
     else:
         st.caption("No positions yet.")
 
-    signal_guide()
+    # Signal Guide lives on the Live Signals page — keep it canonical there
+    # so the same expander isn't duplicated on every dashboard.
 
     # ── Auto-trade log ────────────────────────────────────────────────────────
     auto_log = load_auto_trade_log()
@@ -191,6 +191,12 @@ def main() -> None:
 
     free = cash + (eq.market_value if eq else 0.0)
 
+    def _round_qty(symbol: str, qty: float) -> float:
+        """Round to broker-friendly precision: 4 dp for crypto, 2 dp for stocks."""
+        from app._shared import is_crypto as _is_crypto
+
+        return round(qty, 4 if _is_crypto(symbol) else 2)
+
     for idx, r in enumerate(rows):
         spot = float(r.get("spot", 0))
         stop = float(r.get("stop", 0))
@@ -200,21 +206,50 @@ def main() -> None:
         risk_per = suggested_risk_pct(current_eq, starting, confidence, cfg)
         risk_dollar = free * risk_per
         risk_per_share = abs(spot - stop)
-        qty = round(risk_dollar / max(1e-6, risk_per_share), 6)
+        symbol = r.get("symbol", "")
+        qty = _round_qty(symbol, risk_dollar / max(1e-6, risk_per_share))
         tier = r.get("tier", "")
+        tier_u = str(tier).upper()
+        is_standdown = tier_u == "STAND_DOWN"
+        is_actionable = (
+            tier_u in {"ACT_NOW", "WATCH"}
+            and str(r.get("action", "")).upper() not in {"HOLD", ""}
+        )
         with st.container(border=True):
             c = st.columns([2, 1, 1, 1, 2])
-            head = f"**{r.get('symbol')}** {r.get('timeframe')} — {r.get('action')}"
+            # On STAND_DOWN cards the action ("BUY"/"SELL") came from the raw
+            # detector — Monte Edge demoted it. Showing both would contradict
+            # the tier verdict, so suppress the action in the header.
+            if is_standdown:
+                head = f"**{symbol}** {r.get('timeframe')}"
+            else:
+                head = f"**{symbol}** {r.get('timeframe')} — {r.get('action')}"
             if tier:
                 head += f"<br/>{tier_pill(tier, confidence)}"
             c[0].markdown(head, unsafe_allow_html=True)
             c[1].metric("Risk per trade", f"{risk_per * 100:.2f}%", f"${risk_dollar:,.2f}")
-            c[2].metric("Spot", f"${spot:,.2f}")
-            c[3].metric("Suggested qty", f"{qty}")
+            # Use 2dp for stocks, full price for crypto with no truncation. The
+            # column is narrow, so on small prices skip the trailing decimals.
+            spot_str = f"${spot:,.2f}" if spot >= 10 else f"${spot:,.4f}"
+            c[2].metric("Spot", spot_str)
+            c[3].metric("Suggested qty", f"{qty:g}")
             with c[4]:
                 if r.get("reasoning"):
                     st.caption(f"💡 {r['reasoning']}")
-                action_buy = st.button(f"Paper-buy {qty} {r.get('symbol')}", key=f"b-{idx}-{r.get('hash','')}-{spot}")
+                if not is_actionable:
+                    # Suppress the Paper-buy CTA on non-actionable cards.
+                    # The tier text already explains why (e.g. STAND_DOWN);
+                    # showing a giant button on a "do not open new trades"
+                    # card is mixed messaging.
+                    st.caption(
+                        "⏸ Tier is not ACT_NOW / WATCH — buy disabled. "
+                        "Wait for the tier to upgrade."
+                    )
+                    continue
+                action_buy = st.button(
+                    f"Paper-buy {qty:g} {symbol}",
+                    key=f"b-{idx}-{r.get('hash','')}-{spot}",
+                )
                 if action_buy:
                     try:
                         snap = r.get("indicator_snapshot") or {}

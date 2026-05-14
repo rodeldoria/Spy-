@@ -25,16 +25,18 @@ from monte.signals.dip_pump import Alert, detect
 
 REASONING_LIBRARY: dict[str, str] = {
     "MACRO_LONG": (
-        "SPY is above its 200-day average → broad risk-on regime; long setups "
-        "historically carry a positive drift edge in this state."
+        "Macro filter: SPY (market proxy) is above its 200-day average → "
+        "broad risk-on regime; long setups historically carry a positive "
+        "drift edge in this state."
     ),
     "MACRO_SHORT": (
-        "SPY is below its 200-day average → defensive regime; longs face a "
-        "negative drift headwind, puts/shorts have the edge."
+        "Macro filter: SPY (market proxy) is below its 200-day average → "
+        "defensive regime; longs face a negative drift headwind, "
+        "puts/shorts have the edge."
     ),
     "MACRO_UNKNOWN": (
-        "Macro filter not available (SPY 200-SMA unknown); treating signal "
-        "as informational only."
+        "Macro filter not available (SPY 200-SMA proxy unknown); treating "
+        "signal as informational only."
     ),
     "RSI_REVERT_IN_TREND": (
         "RSI < 30 inside a confirmed uptrend → pullback-in-trend; this is the "
@@ -61,8 +63,9 @@ REASONING_LIBRARY: dict[str, str] = {
         "setup; concentrate risk here."
     ),
     "MACRO_MISMATCH": (
-        "Signal direction disagrees with macro filter → standing down even "
-        "though local indicators line up. Wait for macro alignment."
+        "Signal direction disagrees with the SPY macro filter → standing "
+        "down even though this symbol's local indicators line up. Wait "
+        "for macro alignment."
     ),
     "DRAWDOWN_BRAKE": (
         "Equity is in drawdown → risk per trade is halved until equity makes "

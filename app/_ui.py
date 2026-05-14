@@ -22,6 +22,29 @@ _ACTION_STYLE = {
 }
 
 
+def escape_money(text: str | None) -> str:
+    """Escape ``$`` so Streamlit doesn't render bare dollars as LaTeX math.
+
+    Streamlit's markdown sees ``$...$`` as a math span, which means a
+    sentence like "Bitcoin trades around $80,000-$91,000" renders italic
+    and runs into the next words. Escape every ``$`` to ``\\$`` so the
+    literal character survives. Already-escaped ``\\$`` is left alone.
+    """
+    if not text:
+        return ""
+    parts: list[str] = []
+    i = 0
+    s = str(text)
+    while i < len(s):
+        ch = s[i]
+        if ch == "$" and (i == 0 or s[i - 1] != "\\"):
+            parts.append("\\$")
+        else:
+            parts.append(ch)
+        i += 1
+    return "".join(parts)
+
+
 def inject_global_css() -> None:
     st.markdown(
         """
@@ -195,7 +218,12 @@ def inject_global_css() -> None:
             font-weight: 700;
             font-size: 0.92rem;
             line-height: 1.1;
-            word-break: break-word;
+            /* Keep money values on a single line — never break "$79,830.26"
+               into "$79,8 / 30.26". The mobile rule below shrinks the
+               font instead of wrapping if the container is too narrow. */
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .spy-alert-body {
             font-size: 0.85rem;
@@ -358,12 +386,21 @@ def inject_global_css() -> None:
             .spy-pill { font-size: 0.72rem; padding: 2px 8px; }
             /* Keep these grids as grids on mobile — independent of column stack */
             .spy-alert-metrics {
-                grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
             }
             .spy-factor-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
             }
-            .spy-alert-metric .value { font-size: 0.88rem; }
+            /* Force numbers to fit one line; scale font down rather than
+               break across two lines (e.g. "$79,8 / 30.26"). The container
+               grows with content but never lets the digits wrap. */
+            .spy-alert-metric .value {
+                font-size: clamp(0.74rem, 3.3vw, 0.92rem);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .spy-alert-metric .label { white-space: nowrap; }
             .spy-alert-card { padding: 10px 12px; }
             .spy-filter-row { gap: 4px; }
             .spy-filter-chip { padding: 4px 10px; font-size: 0.78rem; }

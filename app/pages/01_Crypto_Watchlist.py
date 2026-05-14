@@ -27,6 +27,7 @@ from app._shared import (
 )
 from app._ui import (
     action_pill,
+    escape_money,
     filter_chip_row,
     freshness_pill,
     inject_global_css,
@@ -343,21 +344,29 @@ def _render_news(sym: str, action_label: str, news_enabled: bool) -> None:
         return
     brief = perplexity.fetch_news(sym, action=action_label)
     if not brief.configured:
-        st.caption(f"🔎 News: {brief.summary}")
+        st.caption(f"🔎 News: {escape_money(brief.summary)}")
         return
     alignment = brief.aligns_with(action_label)
     kind = {"confirms": "ok", "conflicts": "err", "neutral": "muted"}[alignment]
-    badge = status_pill(f"news {alignment} · {brief.sentiment}", kind)
+    # When alignment is "neutral" the sentiment is the same word, which looks
+    # repetitive ("news neutral · neutral"). Collapse that case so the pill
+    # reads cleanly.
+    pill_text = (
+        f"news {alignment} · {brief.sentiment}"
+        if alignment != brief.sentiment
+        else f"news {alignment}"
+    )
+    badge = status_pill(pill_text, kind)
     st.markdown(f"🔎 **News check** {badge}", unsafe_allow_html=True)
     if brief.error:
-        st.caption(f"⚠️ {brief.summary}")
+        st.caption(f"⚠️ {escape_money(brief.summary)}")
         return
     if brief.summary:
-        st.caption(brief.summary)
+        st.caption(escape_money(brief.summary))
     if brief.headlines:
-        st.markdown("\n".join(f"- {h}" for h in brief.headlines))
+        st.markdown("\n".join(f"- {escape_money(h)}" for h in brief.headlines))
     if brief.catalysts:
-        st.caption("Watch for: " + " · ".join(brief.catalysts))
+        st.caption("Watch for: " + " · ".join(escape_money(c) for c in brief.catalysts))
 
 
 def _render_options(sym: str, alert, edge, timeframe: str) -> None:
