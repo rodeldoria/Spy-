@@ -50,6 +50,25 @@ class SideAssessment:
 
 
 @dataclass(frozen=True)
+class ResolutionCondition:
+    """Plain-English description of what a chosen side actually pays out on.
+
+    The point is to remove the ambiguity between the Kalshi ticket label
+    (YES / NO) and the underlying directional bet (price closes above /
+    below some level). The card UI pairs ``side`` with ``relation`` so the
+    user reads "CONFIRMED YES → BTC closes ABOVE $80,000" instead of
+    having to infer which side of the strike YES corresponds to.
+    """
+
+    side: str                # "YES" or "NO" — the Kalshi ticket label
+    relation: str            # "above" / "below" / "between" / "outside" / ""
+    threshold: str           # formatted strike, e.g. "$80,000" or "$79,500–$79,750"
+    close_phrase: str        # "at 12:00 UTC" / "by Fri Nov 15 17:00 UTC" / ""
+    summary: str             # full sentence — "BTC closes above $80,000 at 12:00 UTC"
+    symbol: str = ""         # "BTC" / "ETH" / "SOL" — convenience for the UI
+
+
+@dataclass(frozen=True)
 class Decision:
     """Full assessment for a single Kalshi market."""
 
@@ -67,6 +86,8 @@ class Decision:
     bet_summary: str = ""    # plain-English: "YES = BTC ≥ $80,000 at 12:00 UTC"
     close_time: float = 0.0  # epoch seconds — for sorting by date
     warnings: list[str] = field(default_factory=list)
+    # Plain-English win condition for the chosen direction (None on PASS).
+    resolution: ResolutionCondition | None = None
 
     @property
     def chosen(self) -> SideAssessment | None:
@@ -201,41 +222,121 @@ def _assess_side(
     )
 
 
-def _bet_summary(market: KalshiMarket, symbol: str) -> str:
-    """Plain-English description of what YES means and when it settles."""
+def _close_phrase(close_time: float) -> str:
+    """Format the close time as "at HH:MM UTC" (same-day) or
+    "by Day Mon DD HH:MM UTC" (further out). Empty string if unknown."""
     import time as _time
     from datetime import datetime, timezone
 
-    when = ""
+    if not close_time:
+        return ""
     try:
-        if market.close_time:
-            dt = datetime.fromtimestamp(market.close_time, tz=timezone.utc)
-            now = _time.time()
-            secs = market.close_time - now
-            if secs < 24 * 3600:
-                when = f" at {dt.strftime('%H:%M UTC')}"
-            else:
-                when = f" by {dt.strftime('%a %b %d %H:%M UTC')}"
+        dt = datetime.fromtimestamp(close_time, tz=timezone.utc)
+        secs = close_time - _time.time()
+        if secs < 24 * 3600:
+            return f"at {dt.strftime('%H:%M UTC')}"
+        return f"by {dt.strftime('%a %b %d %H:%M UTC')}"
     except Exception:
-        pass
+        return ""
 
+
+def _yes_relation_and_threshold(
+    market: KalshiMarket,
+) -> tuple[str, str]:
+    """Map a market's strike/title to ('above'|'below'|'between'|'outside'|'',
+    formatted threshold) for the YES side. NO is the inverse: above↔below,
+    between↔outside. Empty relation means the market shape wasn't recognised."""
     strike_type = (market.strike_type or "").lower()
     floor = market.floor_strike
     cap = market.cap_strike
 
     if strike_type == "greater" and floor is not None:
-        return f"YES = {symbol} closes ≥ ${floor:,.2f}{when}"
+        return "above", f"${floor:,.2f}"
     if strike_type == "less" and floor is not None:
-        return f"YES = {symbol} closes < ${floor:,.2f}{when}"
+        return "below", f"${floor:,.2f}"
     if strike_type == "between" and floor is not None and cap is not None:
-        return f"YES = {symbol} closes between ${floor:,.2f} and ${cap:,.2f}{when}"
+        return "between", f"${floor:,.2f}–${cap:,.2f}"
 
     title = (market.title + " " + market.subtitle).lower()
     if floor is not None and ("up" in title or "above" in title or "higher" in title):
-        return f"YES = {symbol} closes ≥ ${floor:,.2f}{when} (Up market)"
+        return "above", f"${floor:,.2f}"
     if floor is not None and ("down" in title or "below" in title or "lower" in title):
-        return f"YES = {symbol} closes < ${floor:,.2f}{when} (Down market)"
-    return f"YES{when} — see full Kalshi rules (market shape not auto-parsed)"
+        return "below", f"${floor:,.2f}"
+    return "", ""
+
+
+def _flip_relation(rel: str) -> str:
+    return {
+        "above": "below",
+        "below": "above",
+        "between": "outside",
+        "outside": "between",
+    }.get(rel, rel)
+
+
+def resolution_for_side(
+    market: KalshiMarket, symbol: str, side: str,
+) -> ResolutionCondition:
+    """Plain-English win condition for buying ``side`` on this market.
+
+    Always returns a populated ``ResolutionCondition``. If the market shape
+    isn't parseable, ``relation`` is empty and ``summary`` falls back to a
+    "see full Kalshi rules" disclaimer so the UI can still display a
+    coherent badge.
+    """
+    side = side.upper()
+    close_phrase = _close_phrase(market.close_time)
+    yes_rel, threshold = _yes_relation_and_threshold(market)
+
+    if not yes_rel:
+        summary = (
+            f"{side} on this market — see full Kalshi rules "
+            "(market shape not auto-parsed)"
+            + (f" {close_phrase}" if close_phrase else "")
+        )
+        return ResolutionCondition(
+            side=side, relation="", threshold="",
+            close_phrase=close_phrase, summary=summary, symbol=symbol,
+        )
+
+    relation = yes_rel if side == "YES" else _flip_relation(yes_rel)
+
+    when = f" {close_phrase}" if close_phrase else ""
+    if relation in ("above", "below"):
+        summary = f"{symbol} closes {relation} {threshold}{when}"
+    elif relation == "between":
+        summary = f"{symbol} closes between {threshold}{when}"
+    elif relation == "outside":
+        summary = f"{symbol} closes outside {threshold}{when}"
+    else:
+        summary = f"{symbol} {threshold}{when}"
+
+    return ResolutionCondition(
+        side=side, relation=relation, threshold=threshold,
+        close_phrase=close_phrase, summary=summary, symbol=symbol,
+    )
+
+
+def _bet_summary(market: KalshiMarket, symbol: str) -> str:
+    """Plain-English description of what YES means and when it settles.
+
+    Kept as a thin wrapper over ``resolution_for_side`` so the legacy
+    "YES = …" sentence (rendered in the card title and logged to the
+    pattern tracker) stays unchanged.
+    """
+    yes = resolution_for_side(market, symbol, "YES")
+    if not yes.relation:
+        return yes.summary
+    when = f" {yes.close_phrase}" if yes.close_phrase else ""
+    if yes.relation == "above":
+        return f"YES = {symbol} closes ≥ {yes.threshold}{when}"
+    if yes.relation == "below":
+        return f"YES = {symbol} closes < {yes.threshold}{when}"
+    if yes.relation == "between":
+        return f"YES = {symbol} closes between {yes.threshold}{when}"
+    if yes.relation == "outside":
+        return f"YES = {symbol} closes outside {yes.threshold}{when}"
+    return f"YES{when}"
 
 
 def score_market(
@@ -295,6 +396,7 @@ def score_market(
             bet_summary=bet_summary,
             close_time=market.close_time,
             warnings=warnings,
+            resolution=None,
         )
 
     # Pick the larger edge.
@@ -337,6 +439,7 @@ def score_market(
         bet_summary=bet_summary,
         close_time=market.close_time,
         warnings=warnings,
+        resolution=resolution_for_side(market, spot.symbol, direction),
     )
 
 

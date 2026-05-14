@@ -70,6 +70,13 @@ class CouncilVerdict:
     learning_multiplier: float = 1.0   # signature's historical confidence multiplier
     learning_label: str = ""      # e.g. "learned (12 settled, 75% hit, +18.4% ROI)"
     pre_learning_score: float = 0.0   # raw score before applying multiplier
+    # Plain-English resolution condition — what the chosen side actually pays
+    # out on. Surface on the UI so the user can sanity-check the ticket
+    # label (YES/NO) against the underlying directional bet (above/below).
+    resolution_summary: str = ""      # "BTC closes above $80,000 at 12:00 UTC"
+    resolution_relation: str = ""     # "above" / "below" / "between" / "outside" / ""
+    resolution_threshold: str = ""    # "$80,000" / "$79,500–$79,750"
+    resolution_symbol: str = ""       # "BTC" / "ETH" / "SOL"
 
     @property
     def passed_count(self) -> int:
@@ -298,6 +305,10 @@ def evaluate(
     market_ticker: str = "",
     enable_ai: bool = False,
     bankroll: float = 1000.0,
+    resolution_summary: str = "",
+    resolution_relation: str = "",
+    resolution_threshold: str = "",
+    resolution_symbol: str = "",
 ) -> CouncilVerdict:
     """Run the council scorecard for a single Kalshi opportunity."""
 
@@ -317,6 +328,10 @@ def evaluate(
                 "Wait for the spread to widen or the model to disagree.",
                 "Conserve bankroll for high-edge setups.",
             ],
+            resolution_summary=resolution_summary,
+            resolution_relation=resolution_relation,
+            resolution_threshold=resolution_threshold,
+            resolution_symbol=resolution_symbol,
         )
 
     checks = [
@@ -397,19 +412,34 @@ def evaluate(
     else:
         emoji, label = "🔴", "STAND DOWN"
 
+    # Compact directional clause so every line that mentions "BUY YES/NO"
+    # also reminds the user *what* that ticket actually resolves on.
+    # Examples:
+    #   "BUY YES (BTC above $80,000)"
+    #   "BUY NO (ETH below $2,250)"
+    # Falls back to "BUY YES" when the market shape didn't parse.
+    if resolution_relation in ("above", "below") and resolution_threshold:
+        sym = resolution_symbol or "price"
+        dir_clause = f"BUY {direction} ({sym} {resolution_relation} {resolution_threshold})"
+    elif resolution_relation in ("between", "outside") and resolution_threshold:
+        sym = resolution_symbol or "price"
+        dir_clause = f"BUY {direction} ({sym} {resolution_relation} {resolution_threshold})"
+    else:
+        dir_clause = f"BUY {direction}"
+
     # 3-step playbook
     size_dollars = max(0.0, kelly_fraction * bankroll)
     if final >= 80:
         playbook = [
             f"1️⃣  Size: \\${size_dollars:.0f} (Kelly {kelly_fraction*100:.1f}% of \\${bankroll:.0f} bankroll).",
-            f"2️⃣  Enter: BUY {direction} at {ask_cents}¢ now — wait no longer than 5 min.",
+            f"2️⃣  Enter: {dir_clause} at {ask_cents}¢ now — wait no longer than 5 min.",
             f"3️⃣  Hold to close. Don't add if it moves against you; close out only if a new warning fires.",
         ]
     elif final >= 60:
         playbook = [
             f"1️⃣  Half-size: \\${size_dollars * 0.5:.0f} (half-Kelly because confidence is mid).",
             "2️⃣  Wait 1 refresh cycle for one more signal to confirm before entering.",
-            f"3️⃣  If confirmation arrives, BUY {direction} at ≤ {ask_cents + 1}¢ and hold to close.",
+            f"3️⃣  If confirmation arrives, {dir_clause} at ≤ {ask_cents + 1}¢ and hold to close.",
         ]
     elif final >= 40:
         playbook = [
@@ -425,7 +455,7 @@ def evaluate(
         ]
 
     headline = (
-        f"{emoji} {label} — BUY {direction} @ {ask_cents}¢ "
+        f"{emoji} {label} — {dir_clause} @ {ask_cents}¢ "
         f"(score {final:.0f}/100"
         + (f", AI {ai_score:.0f}" if ai_score is not None else "")
         + ")"
@@ -446,6 +476,10 @@ def evaluate(
         learning_multiplier=learning_mult,
         learning_label=learning_label,
         pre_learning_score=pre_learning,
+        resolution_summary=resolution_summary,
+        resolution_relation=resolution_relation,
+        resolution_threshold=resolution_threshold,
+        resolution_symbol=resolution_symbol,
     )
 
 

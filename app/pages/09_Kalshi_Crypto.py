@@ -349,6 +349,7 @@ def _council_inputs_for(d: Decision, calib_report) -> dict:
     except Exception:
         pass
 
+    res = d.resolution
     return dict(
         direction=d.direction,
         edge=chosen.edge,
@@ -364,6 +365,79 @@ def _council_inputs_for(d: Decision, calib_report) -> dict:
         tri_direction_match=tri_match,
         bet_summary=d.bet_summary,
         market_ticker=d.market_ticker,
+        resolution_summary=res.summary if res else "",
+        resolution_relation=res.relation if res else "",
+        resolution_threshold=res.threshold if res else "",
+        resolution_symbol=res.symbol if res else "",
+    )
+
+
+def _confirmed_block_html(d: Decision, verdict: council.CouncilVerdict) -> str:
+    """Build the "CONFIRMED YES above $X" / "CONFIRMED NO below $X" badge.
+
+    The Kalshi ticket label (YES/NO) on its own is ambiguous — YES on a
+    "less" market means "price falls below the strike", which trips users
+    up. This block spells it out so executing the trade does exactly what
+    the card claims:
+
+        ✅ CONFIRMED YES — BUY YES @ 1¢  ·  wins if BTC closes above $90,000 at 12:00 UTC.
+        Otherwise: you lose 1¢/contract (max).
+
+    If the market shape couldn't be parsed (no relation), we render a
+    caution stripe instead of a confirmed stripe and link the user to the
+    Kalshi market rules.
+    """
+    direction = d.direction
+    chosen = d.chosen
+    ask_cents = chosen.ask_cents if chosen else 0
+    relation = verdict.resolution_relation or ""
+    threshold = verdict.resolution_threshold or ""
+    summary = verdict.resolution_summary or ""
+
+    # Parsed market — emit the green/blue "CONFIRMED" stripe.
+    if relation in ("above", "below", "between", "outside"):
+        side_color = "#22c55e" if direction == "YES" else "#f59e0b"
+        side_label = f"CONFIRMED {direction}"
+        # Build the headline phrase: "BUY YES @ 1¢ → BTC ABOVE $90,000 at 12:00 UTC"
+        rel_upper = relation.upper()
+        sym = verdict.resolution_symbol or ""
+        when = verdict.resolution_summary  # use full sentence for the long line
+        # Keep the short bar tight; full sentence goes underneath.
+        short = (
+            f"BUY {direction} @ {ask_cents}¢ → {sym} <strong>{rel_upper}</strong> {threshold}"
+            if sym
+            else f"BUY {direction} @ {ask_cents}¢ → <strong>{rel_upper}</strong> {threshold}"
+        )
+        return (
+            f"<div style='margin-top:8px;padding:9px 12px;background:#052e1a;"
+            f"border-left:4px solid {side_color};border-radius:6px;'>"
+            f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+            f"<div style='color:{side_color};font-weight:800;font-size:0.78rem;letter-spacing:0.04em;'>"
+            f"✅ {side_label}</div>"
+            f"<div style='color:#94a3b8;font-size:0.7rem;'>execute exactly this</div>"
+            f"</div>"
+            f"<div style='color:#e2e8f0;font-size:0.9rem;font-weight:600;margin-top:4px;'>"
+            f"{short}</div>"
+            f"<div style='color:#cbd5e1;font-size:0.78rem;margin-top:3px;'>"
+            f"Wins if {when}. Otherwise you lose your {ask_cents}¢/contract stake."
+            f"</div></div>"
+        )
+
+    # Unparsed market shape — explicit warning so the user doesn't assume
+    # the "BUY YES" tag in the headline maps to a familiar above/below bet.
+    return (
+        f"<div style='margin-top:8px;padding:9px 12px;background:#3b1d05;"
+        f"border-left:4px solid #f97316;border-radius:6px;'>"
+        f"<div style='color:#fb923c;font-weight:800;font-size:0.78rem;letter-spacing:0.04em;'>"
+        f"⚠️ DIRECTION UNVERIFIED</div>"
+        f"<div style='color:#e2e8f0;font-size:0.86rem;margin-top:4px;'>"
+        f"Buying <strong>{direction}</strong> at {ask_cents}¢, but this market's "
+        f"shape (above/below/between) wasn't auto-parsed."
+        f"</div>"
+        f"<div style='color:#fed7aa;font-size:0.76rem;margin-top:3px;'>"
+        f"Open the Kalshi market and confirm what {direction} actually pays out "
+        f"on before executing — the YES/NO label is not enough."
+        f"</div></div>"
     )
 
 
@@ -429,6 +503,12 @@ def _render_council_card(d: Decision, verdict: council.CouncilVerdict) -> None:
         f"</div>"
     )
 
+    # CONFIRMED block — the single most important thing on the card.
+    # Pairs the Kalshi ticket label (YES / NO) with the underlying
+    # directional bet (above / below threshold) so the user can read it at
+    # face value and not confuse "BUY YES" with "I think price goes up".
+    confirmed_html = _confirmed_block_html(d, verdict)
+
     title = f"{d.bet_summary or d.title}" if d.bet_summary else d.title
     st.markdown(
         f"<div style='padding:12px 14px;margin:6px 0;background:#111827;"
@@ -442,6 +522,7 @@ def _render_council_card(d: Decision, verdict: council.CouncilVerdict) -> None:
         f"<div style='background:{band_color};width:{bar_pct}%;height:6px;'></div>"
         f"</div>"
         f"<div style='color:#cbd5e1;font-size:0.86rem;margin-top:6px;'>{verdict.headline}</div>"
+        f"{confirmed_html}"
         f"{learning_html}"
         f"<div style='font-size:0.7rem;color:#94a3b8;margin-top:8px;'>"
         f"<strong>8-framework scorecard</strong> · {verdict.passed_count}/8 checkpoints cleared</div>"
