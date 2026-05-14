@@ -280,8 +280,16 @@ def recommend_play(
     stake: float = 10.0,
     weights: Optional[dict[str, float]] = None,
     enable_news: bool = False,
+    vote_overrides: dict[str, SignalVote] | None = None,
 ) -> Optional[PlayRecommendation]:
     """Build a triangulated play recommendation for a single Kalshi event.
+
+    ``vote_overrides`` keys are vote names (``Crowd`` | ``Patterns`` |
+    ``Influencers`` | ``Session`` | ``News``); any matching vote is taken
+    from the override map instead of being computed live. The backtester
+    uses this to inject fixture-based News/Influencer votes (which have
+    no historical record) while leaving the deterministic Crowd / Patterns
+    / Session votes computed normally.
 
     Returns None if no actionable market is found.
     """
@@ -306,13 +314,18 @@ def recommend_play(
     # Map event → underlying crypto symbol if applicable
     symbol = _is_crypto_symbol(category, series_label)
 
-    # Collect signal votes
+    # Collect signal votes (allow per-name override for backtest replay)
+    overrides = vote_overrides or {}
+
+    def _vote(name: str, fallback: SignalVote) -> SignalVote:
+        return overrides.get(name, fallback)
+
     votes = [
-        _crowd_vote(top_p),
-        _patterns_vote(symbol),
-        _influencers_vote(symbol),
-        _session_vote(),
-        _news_vote(symbol, enable_news),
+        _vote("Crowd", _crowd_vote(top_p)),
+        _vote("Patterns", _patterns_vote(symbol)),
+        _vote("Influencers", _influencers_vote(symbol)),
+        _vote("Session", _session_vote()),
+        _vote("News", _news_vote(symbol, enable_news)),
     ]
 
     # Weighted aggregation: BULL = ride the favourite, BEAR = fade it.

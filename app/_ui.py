@@ -365,11 +365,117 @@ def inject_global_css() -> None:
             }
             .spy-alert-metric .value { font-size: 0.88rem; }
             .spy-alert-card { padding: 10px 12px; }
+            .spy-filter-row { gap: 4px; }
+            .spy-filter-chip { padding: 4px 10px; font-size: 0.78rem; }
+        }
+        /* --- Filter chip row (page-level quick filters above tabs) --- */
+        .spy-filter-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 4px 0 12px 0;
+            align-items: center;
+        }
+        .spy-filter-row .spy-filter-label {
+            font-size: 0.78rem;
+            color: #6b7280;
+            font-weight: 600;
+            margin-right: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .spy-filter-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(127,127,127,0.32);
+            background: rgba(127,127,127,0.06);
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            line-height: 1.4;
+        }
+        .spy-filter-chip.is-on {
+            background: rgba(29,78,216,0.18);
+            border-color: rgba(29,78,216,0.6);
+            color: #1d4ed8;
+        }
+        .spy-filter-chip.is-off { opacity: 0.7; }
+        /* Streamlit button styling override inside chip rows — make the native
+           buttons compact so they sit naturally alongside the visual chips. */
+        .spy-chip-buttons [data-testid="stHorizontalBlock"] {
+            gap: 4px !important;
+        }
+        .spy-chip-buttons button {
+            padding: 2px 10px !important;
+            min-height: 0 !important;
+            font-size: 0.8rem !important;
+            border-radius: 999px !important;
+            font-weight: 600 !important;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
+
+def filter_chip_row(
+    label: str,
+    options: list[str],
+    state_key: str,
+    *,
+    mode: str = "multi",
+    default: list[str] | str | None = None,
+) -> list[str] | str:
+    """Render a row of toggle chips backed by ``st.session_state[state_key]``.
+
+    Returns the current selection — a ``list[str]`` when ``mode='multi'`` and
+    a ``str`` (single value, or empty string for "none") when ``mode='single'``.
+    Uses native ``st.button``s wrapped in a ``.spy-chip-buttons`` container so
+    the global CSS shapes them into pill-style chips. The chip "is-on" visual
+    state is rendered as sibling spans (purely cosmetic — clicks always go
+    through the underlying buttons).
+    """
+    import streamlit as st
+
+    if state_key not in st.session_state:
+        if mode == "multi":
+            st.session_state[state_key] = list(default) if isinstance(default, list) else []
+        else:
+            st.session_state[state_key] = default if isinstance(default, str) else ""
+
+    current = st.session_state[state_key]
+
+    chip_spans: list[str] = [f"<span class='spy-filter-label'>{label}</span>"]
+    for opt in options:
+        on = (opt in current) if mode == "multi" else (opt == current)
+        cls = "spy-filter-chip is-on" if on else "spy-filter-chip is-off"
+        chip_spans.append(f"<span class='{cls}'>{opt}</span>")
+    st.markdown(
+        f"<div class='spy-filter-row'>{''.join(chip_spans)}</div>",
+        unsafe_allow_html=True,
+    )
+
+    cols = st.columns(len(options), gap="small")
+    st.markdown("<div class='spy-chip-buttons'></div>", unsafe_allow_html=True)
+    for col, opt in zip(cols, options):
+        with col:
+            if st.button(opt, key=f"{state_key}__{opt}", use_container_width=True):
+                if mode == "multi":
+                    cur_list = list(st.session_state[state_key])
+                    if opt in cur_list:
+                        cur_list.remove(opt)
+                    else:
+                        cur_list.append(opt)
+                    st.session_state[state_key] = cur_list
+                else:
+                    st.session_state[state_key] = "" if st.session_state[state_key] == opt else opt
+                st.rerun()
+
+    return st.session_state[state_key]
 
 
 def action_pill(action: str, confidence: float | None = None) -> str:
