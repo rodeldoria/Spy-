@@ -19,13 +19,19 @@ def main() -> None:
     cols = st.columns(2)
     with cols[0]:
         st.subheader("Watchlists (current)")
-        st.code(", ".join(settings.crypto_watchlist), language="text")
-        st.code(", ".join(settings.stock_watchlist), language="text")
+        st.markdown("**Crypto**")
+        st.code(", ".join(settings.crypto_watchlist) or "(empty)", language="text")
+        st.markdown("**Stocks**")
+        st.code(", ".join(settings.stock_watchlist) or "(empty)", language="text")
+        st.caption("Edit `MONTE_CRYPTO_WATCHLIST` / `MONTE_STOCK_WATCHLIST` in `.env`.")
     with cols[1]:
         st.subheader("Paths")
-        st.code(str(settings.vector_db_path))
-        st.code(str(settings.paper_state_path))
-        st.code(str(settings.alerts_log_path))
+        st.markdown("**Vector DB**")
+        st.code(str(settings.vector_db_path), language="text")
+        st.markdown("**Paper book state**")
+        st.code(str(settings.paper_state_path), language="text")
+        st.markdown("**Alerts log**")
+        st.code(str(settings.alerts_log_path), language="text")
 
     st.subheader("Triangulation weights")
     weights = dict(settings.triangulation_weights)
@@ -83,13 +89,21 @@ def main() -> None:
     st.caption(
         "1. Install the **ntfy** app on your phone. 2. Subscribe to the same "
         "topic. 3. Save the topic into your `.env` as `MONTE_NTFY_TOPIC=...` "
-        "and restart Streamlit. Test it with:"
+        "and restart Streamlit."
     )
-    st.code(
-        "python -c \"from monte.notify.ntfy import push; print(push('Test', "
-        "'Monte Edge is live', priority='high'))\"",
-        language="bash",
-    )
+    if st.button("Send test push", disabled=not ntfy_configured):
+        try:
+            from monte.notify.ntfy import push as _push
+
+            ok = _push("Test", "Monte Edge is live", priority="high")
+            if ok:
+                st.success("Test push sent — check your ntfy app.")
+            else:
+                st.warning("ntfy returned a non-OK response. Check the topic value.")
+        except Exception as _err:
+            st.error(f"Push failed: {_err}")
+    if not ntfy_configured:
+        st.caption("Set `MONTE_NTFY_TOPIC` in `.env` to enable this button.")
 
     st.subheader("Goal plan")
     cols = st.columns(3)

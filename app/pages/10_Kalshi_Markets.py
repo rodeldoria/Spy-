@@ -343,9 +343,20 @@ def _event_insight(event: dict, market_type: str) -> tuple[str, str, float]:
                     f"distance. Watch for shifts before close."
                 )
             else:
+                # When the two leading buckets round to the same integer
+                # percent, swap in 1-decimal precision so the copy doesn't
+                # read "Tight race — X only barely leads (98% vs 98%)".
+                top_pct = top_p * 100
+                second_pct = second_p * 100
+                if int(round(top_pct)) == int(round(second_pct)):
+                    top_str = f"{top_pct:.1f}%"
+                    second_str = f"{second_pct:.1f}%"
+                else:
+                    top_str = f"{int(round(top_pct))}%"
+                    second_str = f"{int(round(second_pct))}%"
                 why = (
                     f"Tight race — {top_label} only barely leads "
-                    f"({int(top_p*100)}% vs {int(second_p*100)}%). Crowd is "
+                    f"({top_str} vs {second_str}). Crowd is "
                     f"genuinely uncertain; small news could flip the favourite."
                 )
         else:
@@ -475,7 +486,7 @@ def main() -> None:
     inject_global_css()
 
     with st.sidebar:
-        st.subheader("🔮 Kalshi Markets")
+        st.subheader("Market controls")
         refresh_secs = st.select_slider(
             "Auto-refresh",
             options=[15, 30, 60, 120, 300],
@@ -527,7 +538,9 @@ def main() -> None:
             "contracts. Advisory only — this does not place trades."
         )
 
-    st.title("🔮 Kalshi Prediction Markets")
+    # `setup_page` already renders the H1 title at the top; a second
+    # st.title here was producing a duplicate "🔮 Kalshi Markets / Kalshi
+    # Prediction Markets" pair. Show only a subtitle/caption for context.
     st.caption(
         f"Live crowd-sourced event probabilities · refreshes every {refresh_secs}s · "
         f"last update {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}"
